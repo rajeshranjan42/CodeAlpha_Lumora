@@ -1,24 +1,81 @@
 const OTP_MINUTES = Number(process.env.OTP_MINUTES) || 10;
 
 const configured = () =>
-  !!(process.env.GMAIL_USER && process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN);
+  !!(
+    process.env.GMAIL_USER &&
+    process.env.GOOGLE_CLIENT_ID &&
+    process.env.GOOGLE_CLIENT_SECRET &&
+    process.env.GOOGLE_REFRESH_TOKEN
+  );
 
-let transporter;
-function getTransporter() {
-  if (transporter) return transporter;
-  const nodemailer = require('nodemailer'); // npm i nodemailer
-  // Gmail API via Google Cloud OAuth2: nodemailer keeps exchanging the refresh token for fresh access tokens.
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      type: 'OAuth2',
-      user: process.env.GMAIL_USER,
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
-    },
+// ---- Gmail API over HTTPS (works on Render free tier; SMTP ports are blocked there) ----
+let cachedToken = null;
+let cachedTokenExpiry = 0;
+
+async function getAccessToken() {
+  if (cachedToken && Date.now() < cachedTokenExpiry - 60 * 1000) return cachedToken;
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+      grant_type: 'refresh_token',
+    }),
+    signal: AbortSignal.timeout(15000),
   });
-  return transporter;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.access_token) {
+    throw new Error(`Google token error: ${data.error || res.status} ${data.error_description || ''}`.trim());
+  }
+  cachedToken = data.access_token;
+  cachedTokenExpiry = Date.now() + (Number(data.expires_in) || 3600) * 1000;
+  return cachedToken;
+}
+
+const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+const clean = (s) => String(s).replace(/[\r\n]+/g, ' ').trim(); // prevent header injection
+
+async function sendViaGmailApi({ to, subject, text, html: htmlBody }) {
+  const accessToken = await getAccessToken();
+  const boundary = `lumora_${Date.now()}`;
+
+  const raw = [
+    `From: =?UTF-8?B?${b64('Lumora · CodeAlpha')}?= <${clean(process.env.GMAIL_USER)}>`,
+    `To: ${clean(to)}`,
+    `Subject: =?UTF-8?B?${b64(subject)}?=`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    b64(text),
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    'Content-Transfer-Encoding: base64',
+    '',
+    b64(htmlBody),
+    `--${boundary}--`,
+  ].join('\r\n');
+
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ raw: Buffer.from(raw).toString('base64url') }),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Gmail API error ${res.status}: ${err?.error?.message || 'unknown error'}`);
+  }
 }
 
 const html = (code, name) => `<!doctype html><html><body style="margin:0;background:#f6f1ea;font-family:Segoe UI,Arial,sans-serif;color:#1f1a24">
@@ -40,8 +97,7 @@ exports.sendOtp = async (to, code, name) => {
     console.log(`\n✉  [dev] Gmail not configured — verification code for ${to}: ${code}\n`);
     return;
   }
-  await getTransporter().sendMail({
-    from: `"Lumora · CodeAlpha" <${process.env.GMAIL_USER}>`,
+  await sendViaGmailApi({
     to,
     subject: `${code} is your Lumora verification code`,
     text: `Your Lumora verification code is ${code}. It expires in ${OTP_MINUTES} minutes.`,
