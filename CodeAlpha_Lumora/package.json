@@ -1,0 +1,16 @@
+{
+  "name": "codealpha-lumora",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lumora by CodeAlpha - a mini social media platform built with the MERN stack",
+  "scripts": {
+    "install:all": "npm install && npm install --prefix client && npm install --prefix server",
+    "dev": "concurrently -n server,client -c magenta,cyan \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "build": "npm run build --prefix client",
+    "start": "npm start --prefix server"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "concurrently": "^8.2.2"
+  }
+}
