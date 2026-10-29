@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Logo, { LogoMark } from './Logo.jsx';
 import Avatar from './Avatar.jsx';
 import CreatePostModal from './CreatePostModal.jsx';
+import UploadTray from './UploadTray.jsx';
 import {
   HomeIcon,
   CompassIcon,
@@ -13,22 +14,26 @@ import {
   SunIcon,
   MessageIcon,
   ReelsIcon,
+  BellIcon,
 } from './Icons.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
+import { notificationLink, notificationText } from '../utils.js';
 
 export default function Layout() {
   const { user, logout, theme, toggleTheme } = useAuth();
-  const { unread } = useSocket();
+  const { unread, notifUnread } = useSocket();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [creating, setCreating] = useState(false);
   const [tab, setTab] = useState('post');
   const [menu, setMenu] = useState(false); // account menu (small screens)
+  const [toast, setToast] = useState(null); // a live notification, shown for a few seconds
 
   const inMessages = pathname.startsWith('/messages');
   const inChat = /^\/messages\/.+/.test(pathname);
   const inReels = pathname.startsWith('/reels');
+  const bellBadge = notifUnread > 0 ? <span className="badge">{notifUnread > 99 ? '99+' : notifUnread}</span> : null;
   const badge = unread > 0 ? <span className="badge">{unread > 99 ? '99+' : unread}</span> : null;
 
   const openCreate = (t = 'post') => {
@@ -57,14 +62,21 @@ export default function Layout() {
     return () => document.removeEventListener('keydown', onKey);
   }, [menu]);
 
-  const handleCreated = (kind, item) => {
-    if (kind === 'post') window.dispatchEvent(new CustomEvent('lumora:post-created', { detail: item }));
-    else if (kind === 'story') window.dispatchEvent(new CustomEvent('lumora:story-created'));
-    else if (kind === 'reel') {
-      window.dispatchEvent(new CustomEvent('lumora:post-created', { detail: item })); // also appears in the Home feed
-      navigate(`/reels/${item._id}`);
-    }
-  };
+  // pop-up for a new like / comment / follow (not while you're already on the notifications page)
+  useEffect(() => {
+    let timer;
+    const onNotif = (e) => {
+      if (window.location.pathname.startsWith('/notifications')) return;
+      setToast(e.detail);
+      clearTimeout(timer);
+      timer = setTimeout(() => setToast(null), 5000);
+    };
+    window.addEventListener('lumora:notification', onNotif);
+    return () => {
+      window.removeEventListener('lumora:notification', onNotif);
+      clearTimeout(timer);
+    };
+  }, []);
 
   return (
     <div className={`shell ${inChat ? 'in-chat' : ''} ${inReels ? 'in-reels' : ''}`}>
@@ -85,6 +97,10 @@ export default function Layout() {
           <NavLink to="/messages" className="nav-item">
             <MessageIcon /> <span>Messages</span>
             {badge}
+          </NavLink>
+          <NavLink to="/notifications" className="nav-item">
+            <BellIcon /> <span>Notifications</span>
+            {bellBadge}
           </NavLink>
           <button className="nav-item" onClick={() => openCreate()}>
             <PlusIcon /> <span>Create</span>
@@ -110,6 +126,10 @@ export default function Layout() {
           <span className="logo-name">Lumora</span>
           <span className="topbar-sub">CodeAlpha · by Rajesh Ranjan</span>
         </span>
+        <NavLink to="/notifications" className="topbar-bell" aria-label="Notifications">
+          <BellIcon width={24} height={24} />
+          {bellBadge}
+        </NavLink>
         <button
           className="topbar-avatar"
           onClick={() => setMenu((m) => !m)}
@@ -172,8 +192,17 @@ export default function Layout() {
         </NavLink>
       </nav>
 
-      {creating && (
-        <CreatePostModal initialTab={tab} onClose={() => setCreating(false)} onCreated={handleCreated} />
+      {creating && <CreatePostModal initialTab={tab} onClose={() => setCreating(false)} />}
+
+      <UploadTray />
+
+      {toast && (
+        <Link to={notificationLink(toast)} className="toast" onClick={() => setToast(null)}>
+          <Avatar user={toast.actor} size={36} />
+          <span>
+            <strong>{toast.actor.username}</strong> {notificationText(toast)}
+          </span>
+        </Link>
       )}
     </div>
   );

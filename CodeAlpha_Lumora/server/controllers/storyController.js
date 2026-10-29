@@ -1,8 +1,9 @@
 const mongoose = require('mongoose');
 const Story = require('../models/Story');
 const User = require('../models/User');
-const { safeAuthor, removeUpload } = require('../utils/helpers');
-const { checkDuration, LIMITS } = require('../utils/videoDuration');
+const { safeAuthor, removeUpload, parseMusic } = require('../utils/helpers');
+const { checkVideo, LIMITS } = require('../utils/videoDuration');
+const storage = require('../utils/storage');
 
 const DAY = 24 * 60 * 60 * 1000;
 const AUTHOR_FIELDS = 'name username avatar';
@@ -16,6 +17,9 @@ const format = (s, me) => {
     media: s.media,
     mediaType: s.mediaType,
     caption: s.caption,
+    music: s.music && s.music.url ? { id: s.music.id, title: s.music.title, artist: s.music.artist, cover: s.music.cover, url: s.music.url } : null,
+    trimStart: s.trimStart || 0,
+    trimEnd: s.trimEnd || 0,
     createdAt: s.createdAt,
     expiresAt: s.expiresAt,
     seen: mine || s.viewers.some((v) => v.toString() === me),
@@ -32,21 +36,32 @@ exports.create = async (req, res, next) => {
       return res.status(400).json({ message: 'Caption must be 200 characters or fewer' });
     }
     const isVideo = req.file.mimetype.startsWith('video/');
-    // videos: limited by length (45 s). images keep a 10 MB size limit.
-    const tooBig = isVideo ? await checkDuration(req.file, LIMITS.STORY_SECONDS, 'Stories') : req.file.size > 10 * 1024 * 1024 && 'Photos for stories must be under 10 MB';
-    if (tooBig) {
+    // videos: limited by length (45 s) but can be trimmed from a longer clip. photos keep a 10 MB size limit.
+    let trim = { trimStart: 0, trimEnd: 0 };
+    let problem = null;
+    if (isVideo) {
+      const check = await checkVideo(req.file, req.body, LIMITS.STORY_SECONDS, 'Stories');
+      if (check.error) problem = check.error;
+      else trim = check;
+    } else if (req.file.size > 10 * 1024 * 1024) problem = 'Photos for stories must be under 10 MB';
+    const music = parseMusic(req.body.music);
+    if (!problem && req.body.music && !music) problem = 'That song can’t be used';
+    if (problem) {
       removeUpload(`/uploads/${req.file.filename}`);
-      return res.status(400).json({ message: tooBig });
+      return res.status(400).json({ message: problem });
     }
     const story = await Story.create({
       author: req.userId,
-      media: `/uploads/${req.file.filename}`,
+      media: await storage.save(req.file, isVideo ? 'video' : 'image'),
       mediaType: isVideo ? 'video' : 'image',
       caption,
+      ...trim,
+      ...(music ? { music } : {}),
       expiresAt: new Date(Date.now() + DAY),
     });
     res.status(201).json({ story: format(story, req.userId) });
   } catch (err) {
+    if (req.file) removeUpload(`/uploads/${req.file.filename}`);
     next(err);
   }
 };

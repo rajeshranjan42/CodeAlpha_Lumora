@@ -402,3 +402,13 @@ All routes are prefixed with `/api`. 🔒 = requires header `Authorization: Bear
 - Cloud image storage (Cloudinary / S3) instead of local disk
 - Hashtags, saved posts, direct messages
 - Unit/API tests with Jest + Supertest
+
+## Update — media, music, notifications (Oct 2026)
+- **Storage:** photos/videos go to Cloudinary when `CLOUDINARY_*` is set (required on Render — its disk is wiped on restart). Without it files stay in `server/uploads`.
+- **Music library:** Jamendo (royalty-free) via `GET /api/music`; attach a song to posts, stories and reels (`JAMENDO_CLIENT_ID`).
+- **Multi-photo posts:** up to 10 photos per post, swipeable carousel.
+- **Save & share:** bookmark (`POST /posts/:id/save`, `GET /posts/saved`, "Saved" tab on own profile); share sheet with link / WhatsApp / Telegram / email; `/post/:id` opens a single post.
+- **Trim & background upload:** long videos can be trimmed (reel ≤ 1:30, story ≤ 0:45); the chosen window is played back. Uploads continue in a floating tray while you browse.
+- **Chat media:** photos/videos are encrypted in the browser (AES-256-GCM, key inside the E2EE message) before upload (`POST /messages/media`).
+- **Notifications:** like / comment / follow (`/notifications`), live over Socket.io (`notification:new`), bell badge + toast + page.
+- **Speed:** in-memory client cache (Home, Explore, Reels, Profile, Messages) so switching pages doesn't reload.

@@ -10,6 +10,8 @@ const comments = require('../controllers/commentController');
 const messages = require('../controllers/messageController');
 const stories = require('../controllers/storyController');
 const reels = require('../controllers/reelController');
+const notifications = require('../controllers/notificationController');
+const music = require('../controllers/musicController');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -48,10 +50,12 @@ router.get('/users/:username', protect, users.getProfile);
 router.get('/posts/feed', protect, posts.feed);
 router.get('/posts/explore', protect, posts.explore);
 router.get('/posts/user/:username', protect, posts.userPosts);
-router.post('/posts', protect, upload.single('image'), posts.createPost);
+router.get('/posts/saved', protect, posts.saved);
+router.post('/posts', protect, upload.images.array('images', 10), posts.createPost);
 router.get('/posts/:id', protect, posts.getPost);
 router.delete('/posts/:id', protect, posts.deletePost);
 router.post('/posts/:id/like', protect, posts.toggleLike);
+router.post('/posts/:id/save', protect, posts.toggleSave);
 
 // ── comments ──
 router.get('/posts/:postId/comments', protect, comments.list);
@@ -78,6 +82,7 @@ const messageLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: "You're sending messages too fast, slow down a little" },
 });
+router.post('/messages/media', protect, messageLimiter, upload.chat.single('file'), messages.uploadMedia);
 router.get('/messages/unread-count', protect, messages.unreadCount);
 router.get('/messages/conversations', protect, messages.listConversations);
 router.post('/messages/conversations', protect, messages.openConversation);
@@ -85,5 +90,14 @@ router.get('/messages/conversations/:id/messages', protect, messages.getMessages
 router.post('/messages/conversations/:id/messages', protect, messageLimiter, messages.sendMessage);
 router.post('/messages/conversations/:id/seen', protect, messages.markSeen);
 router.delete('/messages/:id', protect, messages.deleteMessage);
+
+// ── notifications ──
+router.get('/notifications', protect, notifications.list);
+router.get('/notifications/unread-count', protect, notifications.unreadCount);
+router.post('/notifications/read', protect, notifications.readAll);
+router.delete('/notifications/:id', protect, notifications.remove);
+
+// ── music library (Jamendo) ──
+router.get('/music', protect, rateLimit({ windowMs: 60 * 1000, limit: 40, standardHeaders: true, legacyHeaders: false, message: { message: 'Slow down a little' } }), music.search);
 
 module.exports = router;

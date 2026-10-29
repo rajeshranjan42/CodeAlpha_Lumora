@@ -11,6 +11,8 @@
  *  - The server only ever stores/relays ciphertext.
  */
 
+import { assetUrl } from './api.js';
+
 const ECDH = { name: 'ECDH', namedCurve: 'P-256' };
 const ITERATIONS = 310000;
 const te = new TextEncoder();
@@ -196,4 +198,51 @@ export async function safetyNumber(userId, peerPublicKey) {
     .join('')
     .toUpperCase();
   return hex.match(/.{4}/g).join(' ');
+}
+
+/* ───────── photos & videos inside chats ─────────
+ * The file is encrypted in the browser with a fresh random AES-256-GCM key; only the scrambled bytes are
+ * uploaded. The key + IV travel INSIDE the end-to-end encrypted message, so only the two people in the chat
+ * can ever open the file. */
+export const MEDIA_PREFIX = '\u0001M';
+
+export async function encryptFile(blob) {
+  const key = await subtle().generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await subtle().encrypt({ name: 'AES-GCM', iv }, key, await blob.arrayBuffer());
+  return { blob: new Blob([ct]), key: toB64(await subtle().exportKey('raw', key)), iv: toB64(iv) };
+}
+
+const opened = new Map(); // url -> object URL (decrypted once per session)
+export async function openEncryptedFile(media) {
+  if (opened.has(media.u)) return opened.get(media.u);
+  const res = await fetch(assetUrl(media.u));
+  if (!res.ok) throw new Error('File not available any more');
+  const key = await subtle().importKey('raw', fromB64(media.k), 'AES-GCM', false, ['decrypt']);
+  const plain = await subtle().decrypt({ name: 'AES-GCM', iv: fromB64(media.iv) }, key, await res.arrayBuffer());
+  const url = URL.createObjectURL(new Blob([plain], { type: media.mime }));
+  opened.set(media.u, url);
+  return url;
+}
+
+/** media = { u: url, k: key, iv, mime, kind: 'image' | 'video' } */
+export const packMedia = (text, media) => MEDIA_PREFIX + JSON.stringify({ t: text || '', m: media });
+
+/** Turns decrypted text into { text, media } (media is null for ordinary messages). */
+export function unpackMedia(plain) {
+  if (typeof plain !== 'string' || !plain.startsWith(MEDIA_PREFIX)) return { text: plain, media: null };
+  try {
+    const j = JSON.parse(plain.slice(MEDIA_PREFIX.length));
+    return { text: j.t || '', media: j.m };
+  } catch {
+    return { text: plain, media: null };
+  }
+}
+
+/** One-line text for the inbox / notifications ("📷 Photo", or the caption). */
+export function previewText(plain) {
+  if (plain == null) return plain;
+  const { text, media } = unpackMedia(plain);
+  if (!media) return text;
+  return text || (media.kind === 'video' ? '🎥 Video' : '📷 Photo');
 }

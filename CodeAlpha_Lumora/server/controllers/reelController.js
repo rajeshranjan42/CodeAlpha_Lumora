@@ -1,7 +1,8 @@
 const Post = require('../models/Post');
 const User = require('../models/User');
-const { formatPost, removeUpload } = require('../utils/helpers');
-const { checkDuration, LIMITS } = require('../utils/videoDuration');
+const { formatPost, removeUpload, parseMusic } = require('../utils/helpers');
+const { checkVideo, LIMITS } = require('../utils/videoDuration');
+const storage = require('../utils/storage');
 
 /*
  * A reel is a Post with kind = 'reel' and a video file.
@@ -26,21 +27,26 @@ exports.create = async (req, res, next) => {
       removeUpload(`/uploads/${req.file.filename}`);
       return res.status(400).json({ message: 'Caption must be 1000 characters or fewer' });
     }
-    // reels are limited by length (1 min 30 s), not by file size
-    const tooLong = await checkDuration(req.file, LIMITS.REEL_SECONDS, 'Reels');
-    if (tooLong) {
+    // reels are limited by length (1 min 30 s), not by file size; a longer video can be trimmed to a window
+    const check = await checkVideo(req.file, req.body, LIMITS.REEL_SECONDS, 'Reels');
+    const music = parseMusic(req.body.music);
+    if (check.error || (req.body.music && !music)) {
       removeUpload(`/uploads/${req.file.filename}`);
-      return res.status(400).json({ message: tooLong });
+      return res.status(400).json({ message: check.error || 'That song can’t be used' });
     }
     const reel = await Post.create({
       author: req.userId,
       caption,
-      video: `/uploads/${req.file.filename}`,
+      video: await storage.save(req.file, 'video'),
       kind: 'reel',
+      trimStart: check.trimStart,
+      trimEnd: check.trimEnd,
+      ...(music ? { music } : {}),
     });
     await reel.populate('author', AUTHOR_FIELDS);
     res.status(201).json({ reel: formatPost(reel, req.userId) });
   } catch (err) {
+    if (req.file) removeUpload(`/uploads/${req.file.filename}`);
     next(err);
   }
 };

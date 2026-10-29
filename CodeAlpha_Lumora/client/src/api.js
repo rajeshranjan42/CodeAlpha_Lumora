@@ -86,9 +86,20 @@ export const api = {
   feed: (page = 1) => request(`/posts/feed?page=${page}`),
   explore: (page = 1) => request(`/posts/explore?page=${page}`),
   userPosts: (username) => request(`/posts/user/${username}`),
-  createPost: (form) => request('/posts', { method: 'POST', form }),
+  createPost: (form, onProgress) => upload('/posts', form, onProgress),
   deletePost: (id) => request(`/posts/${id}`, { method: 'DELETE' }),
   toggleLike: (id) => request(`/posts/${id}/like`, { method: 'POST' }),
+  toggleSave: (id) => request(`/posts/${id}/save`, { method: 'POST' }),
+  saved: () => request('/posts/saved'),
+
+  // music library (Jamendo, through the server)
+  music: (q = '') => request(`/music?q=${encodeURIComponent(q)}`),
+
+  // notifications
+  notifications: (page = 1) => request(`/notifications?page=${page}`),
+  notificationCount: () => request('/notifications/unread-count'),
+  readNotifications: () => request('/notifications/read', { method: 'POST' }),
+  deleteNotification: (id) => request(`/notifications/${id}`, { method: 'DELETE' }),
 
   // messages
   conversations: () => request('/messages/conversations'),
@@ -97,8 +108,14 @@ export const api = {
   messages: (id, before) =>
     request(`/messages/conversations/${id}/messages${before ? `?before=${encodeURIComponent(before)}` : ''}`),
   // text = base64 ciphertext, iv = base64 nonce (see e2ee.js); the server never sees plaintext
-  sendMessage: (id, text, iv) =>
-    request(`/messages/conversations/${id}/messages`, { method: 'POST', body: { text, iv } }),
+  sendMessage: (id, text, iv, attachment = '') =>
+    request(`/messages/conversations/${id}/messages`, { method: 'POST', body: { text, iv, ...(attachment ? { attachment } : {}) } }),
+  // an already-encrypted photo/video blob; the server can't read it
+  uploadChatMedia: (blob, onProgress) => {
+    const form = new FormData();
+    form.append('file', blob, 'media.bin');
+    return upload('/messages/media', form, onProgress);
+  },
   markSeen: (id) => request(`/messages/conversations/${id}/seen`, { method: 'POST' }),
   deleteMessage: (id) => request(`/messages/${id}`, { method: 'DELETE' }),
   unreadCount: () => request('/messages/unread-count'),

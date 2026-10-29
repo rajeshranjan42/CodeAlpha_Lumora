@@ -2,18 +2,25 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, assetUrl } from '../api.js';
 import Avatar from './Avatar.jsx';
+import Carousel from './Carousel.jsx';
 import Comments from './Comments.jsx';
-import { GlowIcon, CommentIcon, MuteIcon, ReelsIcon, TrashIcon, VolumeIcon } from './Icons.jsx';
+import PostMusic from './PostMusic.jsx';
+import ShareModal from './ShareModal.jsx';
+import { BookmarkIcon, CommentIcon, GlowIcon, MuteIcon, ReelsIcon, ShareIcon, TrashIcon, VolumeIcon } from './Icons.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useTrim } from '../hooks/useTrim.js';
 import { timeAgo, compact } from '../utils.js';
 
-/** A reel shown inside the feed: plays muted while on screen, tap for sound. */
+/** A reel shown inside the feed: plays muted while on screen, tap to open the full reel. */
 function FeedVideo({ post, burst, onDoubleTap }) {
   const navigate = useNavigate();
   const box = useRef(null);
   const video = useRef(null);
   const clickTimer = useRef(null);
   const [muted, setMuted] = useState(true);
+  const hasMusic = !!post.music; // the song (below the video) replaces the video's own sound
+
+  useTrim(video, post.trimStart, post.trimEnd);
 
   // a single click opens the reel in the full-screen scrolling viewer; a double click glows it
   const openReel = () => {
@@ -42,8 +49,8 @@ function FeedVideo({ post, burst, onDoubleTap }) {
   }, []);
 
   useEffect(() => {
-    if (video.current) video.current.muted = muted;
-  }, [muted]);
+    if (video.current) video.current.muted = muted || hasMusic;
+  }, [muted, hasMusic]);
 
   return (
     <div className="post-media post-video" ref={box}>
@@ -60,9 +67,11 @@ function FeedVideo({ post, burst, onDoubleTap }) {
       <Link to={`/reels/${post._id}`} className="reel-pill">
         <ReelsIcon width={16} height={16} /> Reel
       </Link>
-      <button className="feed-mute" onClick={() => setMuted((m) => !m)} aria-label={muted ? 'Unmute' : 'Mute'}>
-        {muted ? <MuteIcon width={18} height={18} /> : <VolumeIcon width={18} height={18} />}
-      </button>
+      {!hasMusic && (
+        <button className="feed-mute" onClick={() => setMuted((m) => !m)} aria-label={muted ? 'Unmute' : 'Mute'}>
+          {muted ? <MuteIcon width={18} height={18} /> : <VolumeIcon width={18} height={18} />}
+        </button>
+      )}
       {burst && <GlowIcon className="burst" width={96} height={96} filled />}
     </div>
   );
@@ -73,9 +82,11 @@ export default function PostCard({ post: initial, onDelete, startOpen = false })
   const [post, setPost] = useState(initial);
   const [showComments, setShowComments] = useState(startOpen);
   const [burst, setBurst] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   const isMine = post.author._id === user._id;
   const isReel = !!post.video;
+  const images = post.images?.length ? post.images : post.image ? [post.image] : [];
 
   const toggleGlow = async () => {
     const prev = post;
@@ -93,6 +104,17 @@ export default function PostCard({ post: initial, onDelete, startOpen = false })
     }
   };
 
+  const toggleSave = async () => {
+    const was = post.saved;
+    setPost((p) => ({ ...p, saved: !was }));
+    try {
+      const res = await api.toggleSave(post._id);
+      setPost((p) => ({ ...p, saved: res.saved }));
+    } catch {
+      setPost((p) => ({ ...p, saved: was }));
+    }
+  };
+
   const remove = async () => {
     if (!window.confirm(`Delete this ${isReel ? 'reel' : 'post'}? This cannot be undone.`)) return;
     try {
@@ -102,6 +124,8 @@ export default function PostCard({ post: initial, onDelete, startOpen = false })
       alert(e.message);
     }
   };
+
+  const doubleTap = () => !post.liked && toggleGlow();
 
   return (
     <article className="card post">
@@ -121,26 +145,23 @@ export default function PostCard({ post: initial, onDelete, startOpen = false })
       </header>
 
       {isReel ? (
-        <FeedVideo post={post} burst={burst} onDoubleTap={() => !post.liked && toggleGlow()} />
-      ) : post.image ? (
-        <div className="post-media" onDoubleClick={() => !post.liked && toggleGlow()}>
-          <img src={assetUrl(post.image)} alt={post.caption || 'Post'} loading="lazy" />
+        <FeedVideo post={post} burst={burst} onDoubleTap={doubleTap} />
+      ) : images.length ? (
+        <div className="post-media" onDoubleClick={doubleTap}>
+          <Carousel images={images} alt={post.caption || 'Post'} />
           {burst && <GlowIcon className="burst" width={96} height={96} filled />}
         </div>
       ) : (
-        <div className="post-textcard" onDoubleClick={() => !post.liked && toggleGlow()}>
+        <div className="post-textcard" onDoubleClick={doubleTap}>
           <p>{post.caption}</p>
           {burst && <GlowIcon className="burst" width={96} height={96} filled />}
         </div>
       )}
 
+      {post.music && <PostMusic music={post.music} />}
+
       <div className="post-actions">
-        <button
-          className={`action ${post.liked ? 'glowing' : ''}`}
-          onClick={toggleGlow}
-          aria-pressed={post.liked}
-          aria-label="Glow"
-        >
+        <button className={`action ${post.liked ? 'glowing' : ''}`} onClick={toggleGlow} aria-pressed={post.liked} aria-label="Glow">
           <GlowIcon width={26} height={26} filled={post.liked} />
           <span>{compact(post.likesCount)}</span>
         </button>
@@ -148,20 +169,25 @@ export default function PostCard({ post: initial, onDelete, startOpen = false })
           <CommentIcon width={26} height={26} />
           <span>{compact(post.commentsCount)}</span>
         </button>
+        <button className="action" onClick={() => setSharing(true)} aria-label="Share">
+          <ShareIcon width={25} height={25} />
+        </button>
+        <button className={`action save ${post.saved ? 'saved' : ''}`} onClick={toggleSave} aria-pressed={!!post.saved} aria-label={post.saved ? 'Remove from saved' : 'Save'}>
+          <BookmarkIcon width={26} height={26} filled={!!post.saved} />
+        </button>
       </div>
 
-      {(post.image || isReel) && post.caption && (
+      {(images.length > 0 || isReel) && post.caption && (
         <p className="post-caption">
           <Link to={`/u/${post.author.username}`}>{post.author.username}</Link> {post.caption}
         </p>
       )}
 
       {showComments && (
-        <Comments
-          post={post}
-          onCountChange={(n) => setPost((p) => ({ ...p, commentsCount: n }))}
-        />
+        <Comments post={post} onCountChange={(n) => setPost((p) => ({ ...p, commentsCount: n }))} />
       )}
+
+      {sharing && <ShareModal post={post} onClose={() => setSharing(false)} />}
     </article>
   );
 }

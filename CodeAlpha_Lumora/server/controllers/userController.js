@@ -1,6 +1,8 @@
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { formatUser, escapeRegex, removeUpload } = require('../utils/helpers');
+const storage = require('../utils/storage');
+const { notify, clear } = require('../utils/notify');
 
 exports.getProfile = async (req, res, next) => {
   try {
@@ -32,11 +34,12 @@ exports.updateMe = async (req, res, next) => {
     user.bio = bio;
     if (req.file) {
       removeUpload(user.avatar);
-      user.avatar = `/uploads/${req.file.filename}`;
+      user.avatar = await storage.save(req.file, 'image');
     }
     await user.save();
     res.json({ user: formatUser(user, req.userId) });
   } catch (err) {
+    if (req.file) removeUpload(`/uploads/${req.file.filename}`);
     next(err);
   }
 };
@@ -55,6 +58,9 @@ exports.toggleFollow = async (req, res, next) => {
 
     const updated = await User.findByIdAndUpdate(targetId, { [op]: { followers: req.userId } }, { new: true });
     await User.findByIdAndUpdate(req.userId, { [op]: { following: targetId } });
+
+    if (already) await clear({ recipient: targetId, actor: req.userId, type: 'follow' });
+    else await notify(req, { to: targetId, type: 'follow' });
 
     res.json({ following: !already, followersCount: updated.followers.length });
   } catch (err) {

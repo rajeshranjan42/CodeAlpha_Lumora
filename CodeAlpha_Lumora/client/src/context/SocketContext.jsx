@@ -8,6 +8,8 @@ const SocketContext = createContext({
   online: new Set(),
   unread: 0,
   refreshUnread: () => {},
+  notifUnread: 0,
+  setNotifUnread: () => {},
 });
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || '';
@@ -17,6 +19,7 @@ export function SocketProvider({ children }) {
   const [socket, setSocket] = useState(null);
   const [online, setOnline] = useState(() => new Set());
   const [unread, setUnread] = useState(0);
+  const [notifUnread, setNotifUnread] = useState(0);
 
   const refreshUnread = useCallback(() => {
     api
@@ -29,6 +32,7 @@ export function SocketProvider({ children }) {
     if (!user) {
       setSocket(null);
       setUnread(0);
+      setNotifUnread(0);
       setOnline(new Set());
       return undefined;
     }
@@ -47,15 +51,25 @@ export function SocketProvider({ children }) {
     );
     ['message:new', 'messages:seen', 'message:deleted'].forEach((e) => s.on(e, refreshUnread));
 
+    // a new like / comment / follow: bump the bell and let pages (and the toast) know
+    s.on('notification:new', (n) => {
+      setNotifUnread((c) => c + 1);
+      window.dispatchEvent(new CustomEvent('lumora:notification', { detail: n }));
+    });
+
     setSocket(s);
     refreshUnread();
+    api
+      .notificationCount()
+      .then((d) => setNotifUnread(d.count))
+      .catch(() => {});
     return () => {
       s.disconnect();
     };
   }, [user?._id, refreshUnread]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <SocketContext.Provider value={{ socket, online, unread, refreshUnread }}>
+    <SocketContext.Provider value={{ socket, online, unread, refreshUnread, notifUnread, setNotifUnread }}>
       {children}
     </SocketContext.Provider>
   );

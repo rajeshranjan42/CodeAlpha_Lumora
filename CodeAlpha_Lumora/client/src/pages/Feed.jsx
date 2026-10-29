@@ -8,6 +8,7 @@ import RecentChats from '../components/RecentChats.jsx';
 import Avatar from '../components/Avatar.jsx';
 import { ImageIcon } from '../components/Icons.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { cache } from '../cache.js';
 import { compact } from '../utils.js';
 
 const greeting = () => {
@@ -19,18 +20,19 @@ const greeting = () => {
 
 export default function Feed() {
   const { user } = useAuth();
-  const [posts, setPosts] = useState([]);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const cached = cache.get('feed');
+  const [posts, setPosts] = useState(cached?.posts || []);
+  const [page, setPage] = useState(cached?.page || 1);
+  const [hasMore, setHasMore] = useState(cached?.hasMore || false);
+  const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState('');
-  const [stats, setStats] = useState(null);
+  const [stats, setStats] = useState(() => cache.get(`stats:${user.username}`) || null);
 
   // live counters: refetched on load and whenever you follow / unfollow / post
   const loadStats = useCallback(() => {
     api
       .profile(user.username)
-      .then((d) => setStats(d.user))
+      .then((d) => setStats(cache.set(`stats:${user.username}`, d.user)))
       .catch(() => {});
   }, [user.username]);
 
@@ -45,7 +47,7 @@ export default function Feed() {
   }, [loadStats]);
 
   const load = useCallback(async (p) => {
-    setLoading(true);
+    setLoading(p > 1 || !cache.get('feed')); // with cached posts on screen, refresh quietly
     try {
       const d = await api.feed(p);
       setPosts((prev) => (p === 1 ? d.posts : [...prev, ...d.posts]));
@@ -61,6 +63,10 @@ export default function Feed() {
   useEffect(() => {
     load(1);
   }, [load]);
+
+  useEffect(() => {
+    if (posts.length) cache.set('feed', { posts, page, hasMore });
+  }, [posts, page, hasMore]);
 
   useEffect(() => {
     const onCreated = (e) => setPosts((p) => [e.detail, ...p]);

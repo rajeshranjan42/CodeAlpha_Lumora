@@ -5,18 +5,20 @@ import Avatar from './Avatar.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
 import { decryptMessage } from '../e2ee.js';
+import { cache } from '../cache.js';
+import { previewText } from '../e2ee.js';
 import { timeAgo } from '../utils.js';
 
 export default function RecentChats() {
   const { user } = useAuth();
   const { socket } = useSocket();
-  const [convos, setConvos] = useState(null);
+  const [convos, setConvos] = useState(() => cache.get('recent-chats') || null);
   const [previews, setPreviews] = useState({});
 
   const load = useCallback(() => {
     api
       .conversations()
-      .then((d) => setConvos(d.conversations.slice(0, 3)))
+      .then((d) => setConvos(cache.set('recent-chats', d.conversations.slice(0, 3))))
       .catch(() => setConvos([]));
   }, []);
 
@@ -36,7 +38,7 @@ export default function RecentChats() {
     if (!convos) return undefined;
     let alive = true;
     Promise.all(
-      convos.map(async (c) => [c._id, await decryptMessage(user._id, c.user.publicKey, c._id, c.lastMessage)])
+      convos.map(async (c) => [c._id, previewText(await decryptMessage(user._id, c.user.publicKey, c._id, c.lastMessage))])
     ).then((entries) => alive && setPreviews(Object.fromEntries(entries)));
     return () => {
       alive = false;

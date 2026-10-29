@@ -2,7 +2,8 @@ const mongoose = require('mongoose');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const User = require('../models/User');
-const { safeAuthor } = require('../utils/helpers');
+const storage = require('../utils/storage');
+const { safeAuthor, removeUpload } = require('../utils/helpers');
 
 const AUTHOR_FIELDS = 'name username avatar';
 const PEER_FIELDS = 'name username avatar publicKey';
@@ -21,9 +22,13 @@ const formatMessage = (m) => ({
   text: m.text, // ciphertext (base64) for encrypted messages
   iv: m.iv || '',
   encrypted: !!m.encrypted,
+  attachment: m.attachment || '',
   seen: m.seen,
   createdAt: m.createdAt,
 });
+
+// a message may only point at an encrypted blob that this user uploaded themselves
+const ownAttachment = (att, userId) => storage.ownsChatFile(att, userId);
 
 const emitTo = (req, userId, event, payload) => {
   const io = req.app.get('io');
@@ -160,10 +165,13 @@ exports.sendMessage = async (req, res, next) => {
     if (!text || text.length > 4000 || !/^[A-Za-z0-9+/=]+$/.test(text))
       return res.status(400).json({ message: 'Invalid message' });
 
+    const attachment = String(req.body.attachment || '');
+    if (attachment && !ownAttachment(attachment, req.userId)) return res.status(400).json({ message: 'Invalid attachment' });
+
     const convo = await loadConvo(req.params.id, req.userId);
     if (!convo) return res.status(404).json({ message: 'Conversation not found' });
 
-    const message = await Message.create({ conversation: convo._id, sender: req.userId, text, iv, encrypted: true });
+    const message = await Message.create({ conversation: convo._id, sender: req.userId, text, iv, encrypted: true, attachment });
     convo.lastMessage = { text, iv, encrypted: true, sender: req.userId, createdAt: message.createdAt };
     await convo.save();
 
@@ -188,6 +196,7 @@ exports.deleteMessage = async (req, res, next) => {
 
     const convo = await Conversation.findById(message.conversation);
     await message.deleteOne();
+    removeUpload(message.attachment);
 
     if (convo) {
       const last = await Message.findOne({ conversation: convo._id }).sort({ createdAt: -1 });
@@ -221,6 +230,17 @@ exports.unreadCount = async (req, res, next) => {
     });
     res.json({ count });
   } catch (err) {
+    next(err);
+  }
+};
+
+/** Uploads an already-encrypted photo/video blob. The server cannot see what is inside it. */
+exports.uploadMedia = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: 'No file received' });
+    res.status(201).json({ url: await storage.save(req.file, 'raw') });
+  } catch (err) {
+    if (req.file) removeUpload(`/uploads/${req.file.filename}`);
     next(err);
   }
 };

@@ -166,4 +166,29 @@ async function checkDuration(file, maxSeconds, noun) {
   return null;
 }
 
-module.exports = { getVideoDuration, checkDuration, LIMITS };
+/**
+ * Trim-aware check for reels / story videos. The browser sends trimStart / trimEnd (seconds) when the
+ * user picked a part of a longer video; the file is stored whole and players only play that window.
+ * Returns { error } or { trimStart, trimEnd } (both 0 = no trim).
+ */
+async function checkVideo(file, body, maxSeconds, noun) {
+  const secs = await getVideoDuration(file.path, file.mimetype);
+  const start = Number.parseFloat(body.trimStart);
+  const end = Number.parseFloat(body.trimEnd);
+  const hasTrim = Number.isFinite(start) && Number.isFinite(end);
+
+  if (!hasTrim) {
+    if (secs !== null && secs > maxSeconds + LIMITS.TOLERANCE)
+      return { error: `${noun} can be up to ${fmt(maxSeconds)} long. This video is ${fmt(secs)} — trim it first.` };
+    return { trimStart: 0, trimEnd: 0 };
+  }
+  if (start < 0 || end <= start) return { error: 'Invalid trim range' };
+  if (secs !== null && end > secs + LIMITS.TOLERANCE) return { error: 'The trim range is longer than the video' };
+  if (end - start > maxSeconds + LIMITS.TOLERANCE)
+    return { error: `${noun} can be up to ${fmt(maxSeconds)} long. Your selection is ${fmt(end - start)}.` };
+  // a "trim" that covers the whole video is no trim at all
+  if (start < 0.2 && secs !== null && end >= secs - 0.2) return { trimStart: 0, trimEnd: 0 };
+  return { trimStart: Math.round(start * 100) / 100, trimEnd: Math.round(end * 100) / 100 };
+}
+
+module.exports = { getVideoDuration, checkDuration, checkVideo, LIMITS };

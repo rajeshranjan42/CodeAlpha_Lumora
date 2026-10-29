@@ -5,7 +5,7 @@ const multer = require('multer');
 const IMAGES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/gif': '.gif' };
 const VIDEOS = { 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov' };
 
-const build = (types, maxMb, message) =>
+const build = (types, maxMb, message, maxFiles = 1) =>
   multer({
     storage: multer.diskStorage({
       destination: path.join(__dirname, '..', 'uploads'),
@@ -13,7 +13,7 @@ const build = (types, maxMb, message) =>
       filename: (_req, file, cb) =>
         cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${types[file.mimetype]}`),
     }),
-    limits: { fileSize: maxMb * 1024 * 1024, files: 1 },
+    limits: { fileSize: maxMb * 1024 * 1024, files: maxFiles },
     fileFilter: (_req, file, cb) => {
       if (types[file.mimetype]) return cb(null, true);
       cb(Object.assign(new Error(message), { status: 400 }));
@@ -33,5 +33,18 @@ upload.media = build(
 );
 // reels: video only
 upload.video = build(VIDEOS, VIDEO_CEILING_MB, 'Please choose a video (MP4, WEBM or MOV)');
+
+// multi-photo posts (up to 10 images, 5 MB each)
+upload.images = build(IMAGES, 5, 'Only JPG, PNG, WEBP or GIF images are allowed', 10);
+
+// end-to-end encrypted chat photos/videos: the browser uploads an opaque encrypted blob, so the type is not checked
+upload.chat = multer({
+  storage: multer.diskStorage({
+    destination: path.join(__dirname, '..', 'uploads'),
+    // the owner's id is part of the name so a message can only reference the sender's own uploads
+    filename: (req, _file, cb) => cb(null, `chat-${req.userId}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}.bin`),
+  }),
+  limits: { fileSize: 110 * 1024 * 1024, files: 1 },
+});
 
 module.exports = upload;

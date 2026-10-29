@@ -9,13 +9,28 @@ import {
   MessageIcon,
   SearchIcon,
   LockIcon,
+  PaperclipIcon,
+  CloseIcon,
   SendIcon,
   TrashIcon,
 } from '../components/Icons.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
 import { timeAgo } from '../utils.js';
-import { decryptMessage, encryptText, safetyNumber } from '../e2ee.js';
+import { cache } from '../cache.js';
+import { compressImage, readDuration } from '../mediaUtils.js';
+import {
+  decryptMessage,
+  encryptFile,
+  encryptText,
+  openEncryptedFile,
+  packMedia,
+  previewText,
+  safetyNumber,
+  unpackMedia,
+} from '../e2ee.js';
+
+const MAX_CHAT_MB = 20; // photos are shrunk first; videos must fit this
 
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 const clock = (d) => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -100,6 +115,30 @@ function NewMessageModal({ onClose }) {
   );
 }
 
+/* ───────── a decrypted photo / video inside a chat bubble ───────── */
+function ChatMedia({ media, onOpen }) {
+  const [url, setUrl] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    openEncryptedFile(media)
+      .then((u) => alive && setUrl(u))
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, [media.u]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (failed) return <em className="undecryptable">🔒 This file is no longer available</em>;
+  if (!url) return <span className="chat-media loading" aria-label="Decrypting">Decrypting…</span>;
+  return media.kind === 'video' ? (
+    <video className="chat-media" src={url} controls playsInline preload="metadata" />
+  ) : (
+    <img className="chat-media" src={url} alt="Photo" onClick={() => onOpen(url)} />
+  );
+}
+
 /* ───────── safety number (verify nobody is intercepting) ───────── */
 function SafetyModal({ peer, onClose }) {
   const { user } = useAuth();
@@ -144,6 +183,10 @@ function Chat({ id }) {
   const [typing, setTyping] = useState(false);
   const [showSafety, setShowSafety] = useState(false);
   const [error, setError] = useState('');
+  const [attach, setAttach] = useState(null); // { file, kind, preview }
+  const [sending, setSending] = useState(null); // upload progress 0..1 while a photo/video goes out
+  const [lightbox, setLightbox] = useState(null);
+  const fileInput = useRef(null);
 
   const bodyRef = useRef(null);
   const prevHeight = useRef(0);
@@ -250,15 +293,69 @@ function Chat({ id }) {
     }, 2500);
   };
 
+  const chooseFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (fileInput.current) fileInput.current.value = '';
+    if (!f) return;
+    setError('');
+    const kind = f.type.startsWith('video/') ? 'video' : f.type.startsWith('image/') ? 'image' : null;
+    if (!kind) return setError('Please choose a photo or a video.');
+    if (kind === 'video' && f.size > MAX_CHAT_MB * 1024 * 1024)
+      return setError(`Videos in chats can be up to ${MAX_CHAT_MB} MB. Trim or compress it first.`);
+    if (kind === 'image' && f.size > 40 * 1024 * 1024) return setError('That photo is too large.');
+    const preview = URL.createObjectURL(f);
+    if (kind === 'video') {
+      try {
+        await readDuration(preview);
+      } catch (err) {
+        URL.revokeObjectURL(preview);
+        return setError(err.message);
+      }
+    }
+    if (attach) URL.revokeObjectURL(attach.preview);
+    setAttach({ file: f, kind, preview });
+  };
+
+  const clearAttach = () => {
+    if (attach) URL.revokeObjectURL(attach.preview);
+    setAttach(null);
+  };
+
   const send = async (e) => {
     e.preventDefault();
     const value = text.trim();
-    if (!value) return;
-    setText('');
+    if ((!value && !attach) || sending !== null) return;
     setError('');
     clearTimeout(typingOff.current);
     lastTypingSent.current = 0;
     emitTyping(false);
+
+    if (attach) {
+      try {
+        setSending(0);
+        let blob = attach.file;
+        let mime = attach.file.type;
+        if (attach.kind === 'image') ({ blob, mime } = await compressImage(attach.file));
+        if (blob.size > MAX_CHAT_MB * 1024 * 1024) throw new Error(`That file is over ${MAX_CHAT_MB} MB.`);
+        // encrypt the file on this device; the server and storage only ever see scrambled bytes
+        const enc = await encryptFile(blob);
+        const up = await api.uploadChatMedia(enc.blob, setSending);
+        const media = { u: up.url, k: enc.key, iv: enc.iv, mime, kind: attach.kind };
+        const packed = packMedia(value, media);
+        const msg = await encryptText(user._id, peer?.publicKey, id, packed);
+        const d = await api.sendMessage(id, msg.text, msg.iv, up.url);
+        setMessages((m) => (m.some((x) => x._id === d.message._id) ? m : [...m, { ...d.message, plain: packed }]));
+        setText('');
+        clearAttach();
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setSending(null);
+      }
+      return;
+    }
+
+    setText('');
     try {
       // encrypt on this device first; only ciphertext is sent to the server
       const enc = await encryptText(user._id, peer?.publicKey, id, value);
@@ -372,11 +469,19 @@ function Chat({ id }) {
                     <TrashIcon width={16} height={16} />
                   </button>
                 )}
-                <div className="bubble" title={clock(m.createdAt)}>
+                <div className={`bubble ${m.plain && unpackMedia(m.plain).media ? 'has-media' : ''}`} title={clock(m.createdAt)}>
                   {m.plain === null ? (
                     <em className="undecryptable">🔒 Can’t be decrypted on this device</em>
                   ) : (
-                    m.plain
+                    (() => {
+                      const { text: body, media } = unpackMedia(m.plain);
+                      return (
+                        <>
+                          {media && <ChatMedia media={media} onOpen={setLightbox} />}
+                          {body && <span className={media ? 'media-caption' : ''}>{body}</span>}
+                        </>
+                      );
+                    })()
                   )}
                 </div>
               </div>
@@ -398,20 +503,50 @@ function Chat({ id }) {
       </div>
 
       {error && <p className="error small chat-error">{error}</p>}
+      {attach && (
+        <div className="attach-chip">
+          {attach.kind === 'video' ? <video src={attach.preview} muted playsInline /> : <img src={attach.preview} alt="" />}
+          <span>
+            <strong>{attach.file.name}</strong>
+            <small>{sending !== null ? `Encrypting & sending… ${Math.round(sending * 100)}%` : 'Add a caption (optional) and send'}</small>
+          </span>
+          {sending === null && (
+            <button type="button" className="icon-btn" onClick={clearAttach} aria-label="Remove attachment">
+              <CloseIcon width={18} height={18} />
+            </button>
+          )}
+        </div>
+      )}
       <form className="chat-input" onSubmit={send}>
+        <input ref={fileInput} type="file" accept="image/*,video/*" hidden onChange={chooseFile} />
+        <button
+          type="button"
+          className="icon-btn attach-btn"
+          onClick={() => fileInput.current.click()}
+          disabled={sending !== null || (!!peer && !peer.publicKey)}
+          aria-label="Send a photo or video"
+        >
+          <PaperclipIcon width={22} height={22} />
+        </button>
         <input
           value={text}
           onChange={onChange}
           maxLength={1000}
-          placeholder={peer && !peer.publicKey ? 'Waiting for encryption to be enabled…' : 'Message…'}
+          placeholder={peer && !peer.publicKey ? 'Waiting for encryption to be enabled…' : attach ? 'Add a caption…' : 'Message…'}
           aria-label="Message"
           autoComplete="off"
           disabled={!!peer && !peer.publicKey}
         />
-        <button className="send-btn" disabled={!text.trim() || (!!peer && !peer.publicKey)} aria-label="Send">
+        <button className="send-btn" disabled={(!text.trim() && !attach) || sending !== null || (!!peer && !peer.publicKey)} aria-label="Send">
           <SendIcon width={20} height={20} />
         </button>
       </form>
+
+      {lightbox && (
+        <Modal title="Photo" onClose={() => setLightbox(null)} wide>
+          <img className="lightbox-img" src={lightbox} alt="Photo" />
+        </Modal>
+      )}
 
       {showSafety && peer && <SafetyModal peer={peer} onClose={() => setShowSafety(false)} />}
     </div>
@@ -423,14 +558,14 @@ export default function Messages() {
   const { conversationId } = useParams();
   const { user: me } = useAuth();
   const { socket, online } = useSocket();
-  const [convos, setConvos] = useState(null);
+  const [convos, setConvos] = useState(() => cache.get('convos') || null);
   const [previews, setPreviews] = useState({});
   const [composing, setComposing] = useState(false);
 
   const loadConvos = useCallback(() => {
     api
       .conversations()
-      .then((d) => setConvos(d.conversations))
+      .then((d) => setConvos(cache.set('convos', d.conversations)))
       .catch(() => setConvos([]));
   }, []);
 
@@ -450,7 +585,7 @@ export default function Messages() {
     if (!convos) return undefined;
     let alive = true;
     Promise.all(
-      convos.map(async (c) => [c._id, await decryptMessage(me._id, c.user.publicKey, c._id, c.lastMessage)])
+      convos.map(async (c) => [c._id, previewText(await decryptMessage(me._id, c.user.publicKey, c._id, c.lastMessage))])
     ).then((entries) => alive && setPreviews(Object.fromEntries(entries)));
     return () => {
       alive = false;

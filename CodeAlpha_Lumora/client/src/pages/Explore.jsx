@@ -4,7 +4,9 @@ import { api, assetUrl } from '../api.js';
 import Modal from '../components/Modal.jsx';
 import PostCard from '../components/PostCard.jsx';
 import UserRow from '../components/UserRow.jsx';
-import { SearchIcon, GlowIcon, CommentIcon, PlayIcon } from '../components/Icons.jsx';
+import { SearchIcon, GlowIcon, CommentIcon, PlayIcon, LayersIcon } from '../components/Icons.jsx';
+import { cache } from '../cache.js';
+import { thumbHash } from '../hooks/useTrim.js';
 import { compact } from '../utils.js';
 
 export function PostGrid({ posts, onOpen }) {
@@ -14,13 +16,20 @@ export function PostGrid({ posts, onOpen }) {
         <button key={p._id} className="tile" onClick={() => onOpen(p)}>
           {p.video ? (
             <>
-              <video src={`${assetUrl(p.video)}#t=0.1`} preload="metadata" muted playsInline />
+              <video src={`${assetUrl(p.video)}${thumbHash(p.trimStart)}`} preload="metadata" muted playsInline />
               <span className="reel-badge">
                 <PlayIcon width={16} height={16} />
               </span>
             </>
           ) : p.image ? (
-            <img src={assetUrl(p.image)} alt={p.caption || 'Post'} loading="lazy" />
+            <>
+              <img src={assetUrl(p.images?.[0] || p.image)} alt={p.caption || 'Post'} loading="lazy" />
+              {p.images?.length > 1 && (
+                <span className="reel-badge" title={`${p.images.length} photos`}>
+                  <LayersIcon width={16} height={16} />
+                </span>
+              )}
+            </>
           ) : (
             <span className="tile-text">{p.caption}</span>
           )}
@@ -36,16 +45,17 @@ export function PostGrid({ posts, onOpen }) {
 
 export default function Explore() {
   const navigate = useNavigate();
-  const [posts, setPosts] = useState([]);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const cached = cache.get('explore');
+  const [posts, setPosts] = useState(cached?.posts || []);
+  const [page, setPage] = useState(cached?.page || 1);
+  const [hasMore, setHasMore] = useState(cached?.hasMore || false);
+  const [loading, setLoading] = useState(!cached);
   const [open, setOpen] = useState(null);
   const [q, setQ] = useState('');
   const [results, setResults] = useState(null);
 
   const load = useCallback(async (p) => {
-    setLoading(true);
+    setLoading(p > 1 || !cache.get('explore'));
     try {
       const d = await api.explore(p);
       setPosts((prev) => (p === 1 ? d.posts : [...prev, ...d.posts]));
@@ -57,8 +67,12 @@ export default function Explore() {
   }, []);
 
   useEffect(() => {
-    load(1);
+    load(1); // shows the cached grid instantly while this refreshes quietly
   }, [load]);
+
+  useEffect(() => {
+    if (posts.length) cache.set('explore', { posts, page, hasMore });
+  }, [posts, page, hasMore]);
 
   useEffect(() => {
     const term = q.trim();

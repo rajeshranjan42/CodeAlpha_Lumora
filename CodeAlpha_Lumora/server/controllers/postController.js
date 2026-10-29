@@ -1,7 +1,9 @@
 const Post = require('../models/Post');
 const Comment = require('../models/Comment');
 const User = require('../models/User');
-const { formatPost, removeUpload } = require('../utils/helpers');
+const { formatPost, removeUpload, parseMusic } = require('../utils/helpers');
+const { notify, clear } = require('../utils/notify');
+const storage = require('../utils/storage');
 
 const PAGE_SIZE = 10;
 const AUTHOR_FIELDS = 'name username avatar';
@@ -20,22 +22,30 @@ const paginate = async (filter, req, res, size = PAGE_SIZE) => {
 };
 
 exports.createPost = async (req, res, next) => {
+  const files = req.files || [];
+  const cleanup = () => files.forEach((f) => removeUpload(`/uploads/${f.filename}`));
   try {
     const caption = String(req.body.caption || '').trim();
-    if (!req.file && !caption) return res.status(400).json({ message: 'Add a photo or write something' });
+    if (!files.length && !caption) return res.status(400).json({ message: 'Add a photo or write something' });
     if (caption.length > 1000) {
-      if (req.file) removeUpload(`/uploads/${req.file.filename}`);
+      cleanup();
       return res.status(400).json({ message: 'Caption must be 1000 characters or fewer' });
     }
+    const music = parseMusic(req.body.music);
+    if (req.body.music && !music) {
+      cleanup();
+      return res.status(400).json({ message: 'That song can’t be used' });
+    }
+    if (music && !files.length) {
+      return res.status(400).json({ message: 'Add a photo to use music' });
+    }
 
-    const post = await Post.create({
-      author: req.userId,
-      caption,
-      image: req.file ? `/uploads/${req.file.filename}` : '',
-    });
+    const images = await Promise.all(files.map((f) => storage.save(f, 'image')));
+    const post = await Post.create({ author: req.userId, caption, image: images[0] || '', images, ...(music ? { music } : {}) });
     await post.populate('author', AUTHOR_FIELDS);
     res.status(201).json({ post: formatPost(post, req.userId) });
   } catch (err) {
+    cleanup(); // no-op for files already moved to cloud storage
     next(err);
   }
 };
@@ -87,7 +97,8 @@ exports.deletePost = async (req, res, next) => {
       return res.status(403).json({ message: 'You can only delete your own posts' });
 
     await Comment.deleteMany({ post: post._id });
-    removeUpload(post.image);
+    await clear({ post: post._id });
+    (post.images && post.images.length ? post.images : [post.image]).forEach(removeUpload);
     removeUpload(post.video);
     await post.deleteOne();
     res.json({ message: 'Post deleted' });
@@ -99,7 +110,7 @@ exports.deletePost = async (req, res, next) => {
 /** Like ("Glow") toggle */
 exports.toggleLike = async (req, res, next) => {
   try {
-    const post = await Post.findById(req.params.id).select('likes');
+    const post = await Post.findById(req.params.id).select('likes author');
     if (!post) return res.status(404).json({ message: 'Post not found' });
 
     const liked = post.likes.some((id) => id.toString() === req.userId);
@@ -109,7 +120,33 @@ exports.toggleLike = async (req, res, next) => {
       { new: true }
     ).select('likes');
 
+    if (liked) await clear({ recipient: post.author, actor: req.userId, type: 'like', post: post._id });
+    else await notify(req, { to: post.author, type: 'like', post: post._id });
+
     res.json({ liked: !liked, likesCount: updated.likes.length });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** Save / unsave (bookmark) toggle */
+exports.toggleSave = async (req, res, next) => {
+  try {
+    const post = await Post.findById(req.params.id).select('savedBy');
+    if (!post) return res.status(404).json({ message: 'Post not found' });
+    const saved = post.savedBy.some((id) => id.toString() === req.userId);
+    await Post.updateOne({ _id: post._id }, { [saved ? '$pull' : '$addToSet']: { savedBy: req.userId } });
+    res.json({ saved: !saved });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** My saved posts and reels (private) */
+exports.saved = async (req, res, next) => {
+  try {
+    const rows = await Post.find({ savedBy: req.userId }).sort({ createdAt: -1 }).limit(100).populate('author', AUTHOR_FIELDS);
+    res.json({ posts: rows.map((p) => formatPost(p, req.userId)) });
   } catch (err) {
     next(err);
   }

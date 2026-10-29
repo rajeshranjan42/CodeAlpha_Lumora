@@ -4,7 +4,9 @@ import { api, assetUrl } from '../api.js';
 import Avatar from './Avatar.jsx';
 import Modal from './Modal.jsx';
 import UserRow from './UserRow.jsx';
-import { CloseIcon, EyeIcon, SendIcon, TrashIcon } from './Icons.jsx';
+import { CloseIcon, EyeIcon, MusicIcon, SendIcon, TrashIcon } from './Icons.jsx';
+import { useAudioClip } from '../hooks/useAudioClip.js';
+import { useTrim, windowProgress } from '../hooks/useTrim.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { encryptText } from '../e2ee.js';
 import { timeAgo } from '../utils.js';
@@ -18,6 +20,11 @@ function StoryFrame({ story, index, count, paused, onDone }) {
   const [p, setP] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const video = useRef(null);
+
+  // a long video plays only its chosen window, then the next story starts
+  useTrim(video, story.trimStart, story.trimEnd, onDone);
+  // a song plays behind the story (and replaces a video's own sound)
+  useAudioClip(story.music?.url, { active: !paused && loaded });
 
   // images: advance after IMAGE_MS (timer only runs once loaded and while not paused)
   useEffect(() => {
@@ -69,10 +76,8 @@ function StoryFrame({ story, index, count, paused, onDone }) {
           src={assetUrl(story.media)}
           playsInline
           onLoadedData={startVideo}
-          onTimeUpdate={(e) => {
-            const v = e.currentTarget;
-            if (v.duration) setP(v.currentTime / v.duration);
-          }}
+          muted={!!story.music}
+          onTimeUpdate={(e) => setP(windowProgress(e.currentTarget, story.trimStart, story.trimEnd))}
           onEnded={onDone}
         />
       ) : (
@@ -246,6 +251,11 @@ export default function StoryViewer({ groups, startGroup, onClose }) {
 
         <div className="story-foot">
           {story.caption && <p className="story-caption">{story.caption}</p>}
+          {story.music && (
+            <p className="story-music">
+              <MusicIcon width={14} height={14} /> {story.music.title} · {story.music.artist}
+            </p>
+          )}
           {error && <p className="story-error">{error}</p>}
           {group.isMe ? (
             <button className="story-viewers-btn" onClick={openViewers}>

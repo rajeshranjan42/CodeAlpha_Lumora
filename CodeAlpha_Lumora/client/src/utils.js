@@ -13,3 +13,16 @@ export function timeAgo(date) {
 export function compact(n = 0) {
   return new Intl.NumberFormat('en', { notation: 'compact' }).format(n);
 }
+
+/** "glowed your post", "commented: …", "started following you" */
+export function notificationText(n) {
+  if (n.type === 'like') return n.post?.kind === 'reel' || n.post?.video ? 'glowed your reel' : 'glowed your post';
+  if (n.type === 'comment') return `commented: “${n.text}”`;
+  return 'started following you';
+}
+
+/** Where a notification leads when tapped. */
+export function notificationLink(n) {
+  if (n.type === 'follow' || !n.post) return `/u/${n.actor.username}`;
+  return n.post.kind === 'reel' || n.post.video ? `/reels/${n.post._id}` : `/post/${n.post._id}`;
+}

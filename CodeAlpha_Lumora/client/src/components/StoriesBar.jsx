@@ -4,17 +4,18 @@ import Avatar from './Avatar.jsx';
 import StoryViewer from './StoryViewer.jsx';
 import { PlusIcon } from './Icons.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { cache } from '../cache.js';
 
 /** Horizontal stories strip: your story first, then people you follow (unseen first). */
 export default function StoriesBar() {
   const { user } = useAuth();
-  const [groups, setGroups] = useState(null);
+  const [groups, setGroups] = useState(() => cache.get('stories') || null);
   const [viewing, setViewing] = useState(null); // index into `ordered`
 
   const load = useCallback(() => {
     api
       .storyFeed()
-      .then((d) => setGroups(d.groups))
+      .then((d) => setGroups(cache.set('stories', d.groups)))
       .catch(() => setGroups([]));
   }, []);
 

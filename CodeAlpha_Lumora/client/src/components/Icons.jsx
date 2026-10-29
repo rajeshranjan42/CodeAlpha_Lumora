@@ -146,3 +146,66 @@ export const LockIcon = (p) => (
     <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
   </svg>
 );
+
+export const BellIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 7.5 2.5 7.5h-17S6 15 6 9z" />
+    <path d="M10 20a2.2 2.2 0 0 0 4 0" />
+  </svg>
+);
+export const BookmarkIcon = ({ filled, ...p }) => (
+  <svg {...base} {...p} fill={filled ? 'currentColor' : 'none'}>
+    <path d="M6.5 3.5h11a1 1 0 0 1 1 1V21l-6.5-4.5L5.5 21V4.5a1 1 0 0 1 1-1z" />
+  </svg>
+);
+export const ShareIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5z" />
+  </svg>
+);
+export const MusicIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M9 18V6l10-2v12" />
+    <circle cx="6.5" cy="18" r="2.5" />
+    <circle cx="16.5" cy="16" r="2.5" />
+  </svg>
+);
+export const ScissorsIcon = (p) => (
+  <svg {...base} {...p}>
+    <circle cx="6" cy="6.5" r="2.7" />
+    <circle cx="6" cy="17.5" r="2.7" />
+    <path d="M8.2 8 20 18M8.2 16 20 6" />
+  </svg>
+);
+export const LayersIcon = (p) => (
+  <svg {...base} {...p}>
+    <rect x="8" y="3" width="13" height="13" rx="3" />
+    <path d="M5 8H4.5A1.5 1.5 0 0 0 3 9.5v10A1.5 1.5 0 0 0 4.5 21h10a1.5 1.5 0 0 0 1.5-1.5V19" />
+  </svg>
+);
+export const ChevronLeftIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="m15 5-7 7 7 7" />
+  </svg>
+);
+export const ChevronRightIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="m9 5 7 7-7 7" />
+  </svg>
+);
+export const PaperclipIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="m20.5 11.5-8.2 8.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.4 8.4a1.7 1.7 0 0 1-2.4-2.4l7.7-7.7" />
+  </svg>
+);
+export const CheckIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="m5 12.5 4.5 4.5L19 7.5" />
+  </svg>
+);
+export const LinkIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1" />
+    <path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1" />
+  </svg>
+);

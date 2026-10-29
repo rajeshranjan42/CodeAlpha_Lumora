@@ -7,9 +7,11 @@ import EditProfileModal from '../components/EditProfileModal.jsx';
 import Modal from '../components/Modal.jsx';
 import PostCard from '../components/PostCard.jsx';
 import UserRow from '../components/UserRow.jsx';
-import { GlowIcon, MessageIcon, PlayIcon } from '../components/Icons.jsx';
+import { BookmarkIcon, GlowIcon, MessageIcon, PlayIcon } from '../components/Icons.jsx';
 import { PostGrid } from './Explore.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { cache } from '../cache.js';
+import { thumbHash } from '../hooks/useTrim.js';
 import { compact } from '../utils.js';
 
 function ReelGrid({ reels, onOpen }) {
@@ -17,7 +19,7 @@ function ReelGrid({ reels, onOpen }) {
     <div className="grid reel-grid">
       {reels.map((r) => (
         <button key={r._id} className="tile reel-tile" onClick={() => onOpen(r)} aria-label="Open reel">
-          <video src={`${assetUrl(r.video)}#t=0.1`} preload="metadata" muted playsInline />
+          <video src={`${assetUrl(r.video)}${thumbHash(r.trimStart)}`} preload="metadata" muted playsInline />
           <span className="reel-badge">
             <PlayIcon width={16} height={16} />
           </span>
@@ -36,23 +38,35 @@ export default function Profile() {
   const { username } = useParams();
   const navigate = useNavigate();
   const { logout } = useAuth();
-  const [profile, setProfile] = useState(null);
-  const [posts, setPosts] = useState([]);
+  const first = cache.get(`profile:${username}`);
+  const [profile, setProfile] = useState(first?.profile || null);
+  const [posts, setPosts] = useState(first?.posts || []);
   const [reels, setReels] = useState(null); // null = not loaded yet
+  const [saved, setSaved] = useState(null); // my saved posts + reels (own profile only)
   const [tab, setTab] = useState('posts');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!first);
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(null);
   const [list, setList] = useState(null); // { title, users }
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
+    const hit = cache.get(`profile:${username}`);
     setError('');
-    setProfile(null);
     setTab('posts');
     setReels(null);
+    setSaved(null);
+    if (hit) {
+      // seen before: show it right away and refresh quietly
+      setProfile(hit.profile);
+      setPosts(hit.posts);
+      setLoading(false);
+    } else {
+      setLoading(true);
+      setProfile(null);
+      setPosts([]);
+    }
     Promise.all([api.profile(username), api.userPosts(username)])
       .then(([p, po]) => {
         if (!alive) return;
@@ -67,6 +81,10 @@ export default function Profile() {
   }, [username]);
 
   useEffect(() => {
+    if (profile && !loading && profile.username === username) cache.set(`profile:${username}`, { profile, posts });
+  }, [profile, posts, loading, username]);
+
+  useEffect(() => {
     const onCreated = (e) => {
       const item = e.detail;
       if (!profile?.isMe || !item || item.video) return; // reels live in the Reels tab (and count below)
@@ -79,6 +97,12 @@ export default function Profile() {
 
   const showTab = (t) => {
     setTab(t);
+    if (t === 'saved' && saved === null) {
+      api
+        .saved()
+        .then((d) => setSaved(d.posts))
+        .catch(() => setSaved([]));
+    }
     if (t === 'reels' && reels === null) {
       api
         .userReels(username)
@@ -181,6 +205,11 @@ export default function Profile() {
         <button role="tab" aria-selected={tab === 'reels'} className={tab === 'reels' ? 'on' : ''} onClick={() => showTab('reels')}>
           Reels
         </button>
+        {profile.isMe && (
+          <button role="tab" aria-selected={tab === 'saved'} className={tab === 'saved' ? 'on' : ''} onClick={() => showTab('saved')}>
+            <BookmarkIcon width={16} height={16} /> Saved
+          </button>
+        )}
       </div>
 
       {tab === 'posts' ? (
@@ -190,6 +219,17 @@ export default function Profile() {
             <div className="card empty">
               <h3>No posts yet</h3>
               <p className="muted">{profile.isMe ? 'Share your first glow with the world.' : 'Nothing shared yet.'}</p>
+            </div>
+          )}
+        </>
+      ) : tab === 'saved' ? (
+        <>
+          {saved === null && <p className="muted center">Loading saved…</p>}
+          {saved && <PostGrid posts={saved} onOpen={(p) => (p.video ? navigate(`/reels/${p._id}`) : setOpen(p))} />}
+          {saved?.length === 0 && (
+            <div className="card empty">
+              <h3>Nothing saved yet</h3>
+              <p className="muted">Tap the bookmark under a post or reel to keep it here. Only you can see this.</p>
             </div>
           )}
         </>

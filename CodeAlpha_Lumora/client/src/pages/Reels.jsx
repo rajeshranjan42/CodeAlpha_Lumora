@@ -5,8 +5,12 @@ import Avatar from '../components/Avatar.jsx';
 import Comments from '../components/Comments.jsx';
 import FollowButton from '../components/FollowButton.jsx';
 import Modal from '../components/Modal.jsx';
+import ShareModal from '../components/ShareModal.jsx';
 import {
+  BookmarkIcon,
   CommentIcon,
+  MusicIcon,
+  ShareIcon,
   GlowIcon,
   MuteIcon,
   PauseIcon,
@@ -16,6 +20,9 @@ import {
   VolumeIcon,
 } from '../components/Icons.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
+import { cache } from '../cache.js';
+import { useAudioClip } from '../hooks/useAudioClip.js';
+import { useTrim, windowProgress } from '../hooks/useTrim.js';
 import { compact } from '../utils.js';
 
 function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
@@ -25,11 +32,17 @@ function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
   const [progress, setProgress] = useState(0);
   const [flash, setFlash] = useState(null); // 'play' | 'pause' | 'glow'
   const [showComments, setShowComments] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const box = useRef(null);
   const video = useRef(null);
   const flashTimer = useRef(null);
 
   const mine = r.author._id === user._id;
+  const playing = active && !userPaused && !showComments && !sharing;
+
+  useTrim(video, r.trimStart, r.trimEnd);
+  // a reel with a song plays the song (looping) instead of the video's own sound
+  useAudioClip(r.music?.url, { active: playing, muted });
 
   // tell the page which reel is mostly on screen
   useEffect(() => {
@@ -46,7 +59,7 @@ function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
   useEffect(() => {
     const v = video.current;
     if (!v) return;
-    if (active && !userPaused && !showComments) {
+    if (active && !userPaused && !showComments && !sharing) {
       const p = v.play();
       if (p)
         p.catch(() => {
@@ -57,16 +70,16 @@ function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
     } else {
       v.pause();
       if (!active) {
-        v.currentTime = 0;
+        v.currentTime = r.trimStart || 0;
         setProgress(0);
         setUserPaused(false);
       }
     }
-  }, [active, userPaused, showComments, setMuted]);
+  }, [active, userPaused, showComments, sharing, setMuted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (video.current) video.current.muted = muted;
-  }, [muted]);
+    if (video.current) video.current.muted = muted || !!r.music;
+  }, [muted, r.music]);
 
   const pulse = (kind) => {
     setFlash(kind);
@@ -94,6 +107,17 @@ function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
     }
   };
 
+  const toggleSave = async () => {
+    const was = r.saved;
+    setR((x) => ({ ...x, saved: !was }));
+    try {
+      const res = await api.toggleSave(r._id);
+      setR((x) => ({ ...x, saved: res.saved }));
+    } catch {
+      setR((x) => ({ ...x, saved: was }));
+    }
+  };
+
   const remove = async () => {
     if (!window.confirm('Delete this reel? This cannot be undone.')) return;
     try {
@@ -116,10 +140,7 @@ function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
           preload="metadata"
           onClick={togglePause}
           onDoubleClick={() => !r.liked && toggleGlow()}
-          onTimeUpdate={(e) => {
-            const v = e.currentTarget;
-            if (v.duration) setProgress(v.currentTime / v.duration);
-          }}
+          onTimeUpdate={(e) => setProgress(windowProgress(e.currentTarget, r.trimStart, r.trimEnd))}
         />
         <div className="reel-shade" />
 
@@ -148,6 +169,11 @@ function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
             {!mine && <FollowButton userId={r.author._id} isFollowing={!!r.isFollowing} small />}
           </div>
           {r.caption && <p className="reel-caption">{r.caption}</p>}
+          {r.music && (
+            <p className="reel-music">
+              <MusicIcon width={14} height={14} /> <span>{r.music.title} · {r.music.artist}</span>
+            </p>
+          )}
         </div>
 
         <div className="reel-rail">
@@ -158,6 +184,14 @@ function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
           <button className="rail-btn" onClick={() => setShowComments(true)} aria-label="Comments">
             <CommentIcon width={30} height={30} />
             <span>{compact(r.commentsCount)}</span>
+          </button>
+          <button className="rail-btn" onClick={() => setSharing(true)} aria-label="Share">
+            <ShareIcon width={28} height={28} />
+            <span>Share</span>
+          </button>
+          <button className={`rail-btn ${r.saved ? 'glowing' : ''}`} onClick={toggleSave} aria-label={r.saved ? 'Remove from saved' : 'Save'} aria-pressed={!!r.saved}>
+            <BookmarkIcon width={28} height={28} filled={!!r.saved} />
+            <span>{r.saved ? 'Saved' : 'Save'}</span>
           </button>
           {mine && (
             <button className="rail-btn" onClick={remove} aria-label="Delete reel">
@@ -171,6 +205,7 @@ function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
         </div>
       </div>
 
+      {sharing && <ShareModal post={r} onClose={() => setSharing(false)} />}
       {showComments && (
         <Modal title="Comments" onClose={() => setShowComments(false)}>
           <Comments post={r} onCountChange={(n) => setR((x) => ({ ...x, commentsCount: n }))} />
@@ -182,19 +217,26 @@ function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
 
 export default function Reels() {
   const { reelId } = useParams();
-  const [reels, setReels] = useState([]);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [activeId, setActiveId] = useState(null);
+  const cached = cache.get('reels');
+  const [reels, setReels] = useState(cached?.reels || []);
+  const [page, setPage] = useState(cached?.page || 1);
+  const [hasMore, setHasMore] = useState(cached?.hasMore || false);
+  const [loading, setLoading] = useState(!cached);
+  const [activeId, setActiveId] = useState(cached?.reels?.[0]?._id ?? null);
   const [muted, setMuted] = useState(false);
   const scroller = useRef(null);
 
   // first page (+ a specific reel pinned to the top when opened from a profile)
   useEffect(() => {
     let alive = true;
+    const hit = cache.get('reels');
+    // coming back to Reels within a minute: show the same list instantly instead of reloading it
+    if (!reelId && hit && Date.now() - (cache.get('reels:at') || 0) < 60000) {
+      setLoading(false);
+      return undefined;
+    }
     (async () => {
-      setLoading(true);
+      setLoading(!hit);
       try {
         const d = await api.reels(1);
         let list = d.reels;
@@ -212,6 +254,7 @@ export default function Reels() {
         }
         if (!alive) return;
         setReels(list);
+        if (!reelId) cache.set('reels:at', Date.now());
         setHasMore(d.hasMore);
         setPage(1);
         setActiveId(list[0]?._id ?? null);
@@ -224,6 +267,11 @@ export default function Reels() {
       alive = false;
     };
   }, [reelId]);
+
+  // remember the list for the next visit
+  useEffect(() => {
+    if (!reelId && reels.length) cache.set('reels', { reels, page, hasMore });
+  }, [reels, page, hasMore, reelId]);
 
   const loadMore = useCallback(async () => {
     setLoading(true);

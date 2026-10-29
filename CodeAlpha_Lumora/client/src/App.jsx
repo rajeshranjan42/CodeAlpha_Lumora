@@ -7,6 +7,8 @@ import Explore from './pages/Explore.jsx';
 import Profile from './pages/Profile.jsx';
 import Messages from './pages/Messages.jsx';
 import Reels from './pages/Reels.jsx';
+import Notifications from './pages/Notifications.jsx';
+import PostPage from './pages/PostPage.jsx';
 import { LogoMark } from './components/Logo.jsx';
 
 function Splash() {
@@ -42,6 +44,8 @@ export default function App() {
         <Route path="/messages" element={<Messages />} />
         <Route path="/messages/:conversationId" element={<Messages />} />
         <Route path="/u/:username" element={<Profile />} />
+        <Route path="/post/:id" element={<PostPage />} />
+        <Route path="/notifications" element={<Notifications />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -2,6 +2,7 @@
   "name": "lumora-server",
   "version": "1.0.0",
   "private": true,
+  "engines": { "node": ">=20" },
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -19,6 +20,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.5.0",
     "morgan": "^1.10.0",
+    "nodemailer": "^6.9.14",
     "multer": "^2.0.2",
     "nodemailer": "^10.2.1",
     "socket.io": "^4.7.5"

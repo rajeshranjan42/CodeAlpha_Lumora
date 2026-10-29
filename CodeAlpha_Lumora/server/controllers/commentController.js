@@ -1,6 +1,7 @@
 const Comment = require('../models/Comment');
 const Post = require('../models/Post');
 const { safeAuthor } = require('../utils/helpers');
+const { notify } = require('../utils/notify');
 
 const AUTHOR_FIELDS = 'name username avatar';
 const format = (c) => ({ _id: c._id, text: c.text, createdAt: c.createdAt, author: safeAuthor(c.author) });
@@ -30,6 +31,7 @@ exports.create = async (req, res, next) => {
 
     const comment = await Comment.create({ post: post._id, author: req.userId, text });
     await comment.populate('author', AUTHOR_FIELDS);
+    await notify(req, { to: post.author, type: 'comment', post: post._id, text: text.slice(0, 100) });
     res.status(201).json({ comment: format(comment) });
   } catch (err) {
     next(err);

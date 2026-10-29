@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import UserRow from './UserRow.jsx';
+import { cache } from '../cache.js';
 
 export default function Suggestions() {
-  const [people, setPeople] = useState(null);
+  const [people, setPeople] = useState(() => cache.get('suggestions') || null);
 
   useEffect(() => {
     api
       .suggestions()
-      .then((d) => setPeople(d.users))
+      .then((d) => setPeople(cache.set('suggestions', d.users)))
       .catch(() => setPeople([]));
   }, []);
 
