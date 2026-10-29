@@ -54,10 +54,13 @@ exports.listConversations = async (req, res, next) => {
       .limit(50)
       .populate('participants', PEER_FIELDS);
 
+    // deleted user ki chat skip (populate ke baad uska participant gayab ho jata hai)
+    const valid = convos.filter((c) => otherOf(c, req.userId));
+
     const unread = await Message.aggregate([
       {
         $match: {
-          conversation: { $in: convos.map((c) => c._id) },
+          conversation: { $in: valid.map((c) => c._id) },
           sender: { $ne: new mongoose.Types.ObjectId(req.userId) },
           seen: false,
         },
@@ -67,11 +70,11 @@ exports.listConversations = async (req, res, next) => {
     const unreadMap = new Map(unread.map((u) => [u._id.toString(), u.n]));
 
     res.json({
-      conversations: convos.map((c) => {
+      conversations: valid.map((c) => {
         const other = otherOf(c, req.userId);
         return {
           _id: c._id,
-          user: other ? peerOf(other) : null,
+          user: peerOf(other),
           lastMessage: {
             text: c.lastMessage.text,
             iv: c.lastMessage.iv || '',
@@ -115,6 +118,10 @@ exports.getMessages = async (req, res, next) => {
     const convo = await loadConvo(req.params.id, req.userId);
     if (!convo) return res.status(404).json({ message: 'Conversation not found' });
 
+    const otherId = idOf(otherOf(convo, req.userId));
+    const other = await User.findById(otherId).select(PEER_FIELDS);
+    if (!other) return res.status(404).json({ message: 'User not found' });
+
     const filter = { conversation: convo._id };
     if (req.query.before) {
       const d = new Date(req.query.before);
@@ -125,15 +132,13 @@ exports.getMessages = async (req, res, next) => {
       .limit(PAGE + 1);
     const messages = rows.slice(0, PAGE).reverse().map(formatMessage);
 
-    const otherId = idOf(otherOf(convo, req.userId));
     const marked = await Message.updateMany(
       { conversation: convo._id, sender: otherId, seen: false },
       { $set: { seen: true } }
     );
     if (marked.modifiedCount > 0) emitTo(req, otherId, 'messages:seen', { conversation: convo._id.toString() });
 
-    const other = await User.findById(otherId).select(PEER_FIELDS);
-    res.json({ messages, hasMore: rows.length > PAGE, user: other ? peerOf(other) : null });
+    res.json({ messages, hasMore: rows.length > PAGE, user: peerOf(other) });
   } catch (err) {
     next(err);
   }
@@ -171,12 +176,17 @@ exports.sendMessage = async (req, res, next) => {
     const convo = await loadConvo(req.params.id, req.userId);
     if (!convo) return res.status(404).json({ message: 'Conversation not found' });
 
+    // deleted user ko message nahi bhejna
+    const otherId = idOf(otherOf(convo, req.userId));
+    const peerExists = await User.exists({ _id: otherId });
+    if (!peerExists) return res.status(404).json({ message: 'User not found' });
+
     const message = await Message.create({ conversation: convo._id, sender: req.userId, text, iv, encrypted: true, attachment });
     convo.lastMessage = { text, iv, encrypted: true, sender: req.userId, createdAt: message.createdAt };
     await convo.save();
 
     const payload = { conversation: convo._id.toString(), message: formatMessage(message) };
-    emitTo(req, idOf(otherOf(convo, req.userId)), 'message:new', payload);
+    emitTo(req, otherId, 'message:new', payload);
     emitTo(req, req.userId, 'message:new', payload); // keeps my other tabs in sync
 
     res.status(201).json({ message: payload.message });
