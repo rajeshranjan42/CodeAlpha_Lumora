@@ -64,7 +64,6 @@ export default function CreatePostModal({ onClose, initialTab = 'post' }) {
   const input = useRef();
   const urls = useRef([]); // every object URL made here, released on close
   const cfg = TABS[tab];
-  const isVideo = file?.type.startsWith('video/');
 
   useEffect(
     () => () => {
