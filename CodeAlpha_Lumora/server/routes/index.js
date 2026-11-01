@@ -92,6 +92,7 @@ router.post('/messages/conversations', protect, messages.openConversation);
 router.get('/messages/conversations/:id/messages', protect, messages.getMessages);
 router.post('/messages/conversations/:id/messages', protect, messageLimiter, messages.sendMessage);
 router.post('/messages/conversations/:id/seen', protect, messages.markSeen);
+router.post('/messages/delete', protect, messageLimiter, messages.deleteMany);
 router.delete('/messages/:id', protect, messages.deleteMessage);
 
 // ── notifications ──

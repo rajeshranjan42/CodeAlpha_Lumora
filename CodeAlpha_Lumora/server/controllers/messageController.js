@@ -25,6 +25,7 @@ const formatMessage = (m) => ({
   encrypted: !!m.encrypted,
   attachment: m.attachment || '',
   seen: m.seen,
+  seenAt: m.seenAt || null,
   createdAt: m.createdAt,
 });
 
@@ -67,18 +68,31 @@ exports.listConversations = async (req, res, next) => {
     ]);
     const unreadMap = new Map(unread.map((u) => [u._id.toString(), u.n]));
 
+    // newest message I haven't deleted for myself, per conversation (the stored preview may be one I removed)
+    const visible = new Map(
+      (
+        await Message.aggregate([
+          { $match: { conversation: { $in: convos.map((c) => c._id) }, deletedFor: { $ne: new mongoose.Types.ObjectId(req.userId) } } },
+          { $sort: { createdAt: -1 } },
+          { $group: { _id: '$conversation', m: { $first: '$$ROOT' } } },
+        ])
+      ).map((r) => [r._id.toString(), r.m])
+    );
+
     res.json({
-      conversations: convos.map((c) => {
+      // a chat is left out when the other person deleted their account, or when I deleted every message in it for myself
+      conversations: convos.filter((c) => otherOf(c, req.userId) && visible.has(c._id.toString())).map((c) => {
         const other = otherOf(c, req.userId);
+        const v = visible.get(c._id.toString());
         return {
           _id: c._id,
-          user: other ? peerOf(other) : null,
+          user: peerOf(other),
           lastMessage: {
-            text: c.lastMessage.text,
-            iv: c.lastMessage.iv || '',
-            encrypted: !!c.lastMessage.encrypted,
-            mine: c.lastMessage.sender?.toString() === req.userId,
-            createdAt: c.lastMessage.createdAt,
+            text: v.text,
+            iv: v.iv || '',
+            encrypted: !!v.encrypted,
+            mine: v.sender?.toString() === req.userId,
+            createdAt: v.createdAt,
           },
           unread: unreadMap.get(c._id.toString()) || 0,
           updatedAt: c.updatedAt,
@@ -116,7 +130,7 @@ exports.getMessages = async (req, res, next) => {
     const convo = await loadConvo(req.params.id, req.userId);
     if (!convo) return res.status(404).json({ message: 'Conversation not found' });
 
-    const filter = { conversation: convo._id };
+    const filter = { conversation: convo._id, deletedFor: { $ne: req.userId } };
     if (req.query.before) {
       const d = new Date(req.query.before);
       if (!Number.isNaN(d.getTime())) filter.createdAt = { $lt: d };
@@ -129,7 +143,7 @@ exports.getMessages = async (req, res, next) => {
     const otherId = idOf(otherOf(convo, req.userId));
     const marked = await Message.updateMany(
       { conversation: convo._id, sender: otherId, seen: false },
-      { $set: { seen: true } }
+      { $set: { seen: true, seenAt: new Date() } }
     );
     if (marked.modifiedCount > 0) emitTo(req, otherId, 'messages:seen', { conversation: convo._id.toString() });
 
@@ -147,7 +161,7 @@ exports.markSeen = async (req, res, next) => {
     const otherId = idOf(otherOf(convo, req.userId));
     const marked = await Message.updateMany(
       { conversation: convo._id, sender: otherId, seen: false },
-      { $set: { seen: true } }
+      { $set: { seen: true, seenAt: new Date() } }
     );
     if (marked.modifiedCount > 0) emitTo(req, otherId, 'messages:seen', { conversation: convo._id.toString() });
     res.json({ ok: true });
@@ -191,6 +205,55 @@ exports.sendMessage = async (req, res, next) => {
     ).catch(() => {});
 
     res.status(201).json({ message: payload.message });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** Points the conversation preview at its newest remaining message (or clears it). */
+async function refreshLast(convo) {
+  const last = await Message.findOne({ conversation: convo._id }).sort({ createdAt: -1 });
+  convo.lastMessage = last
+    ? { text: last.text, iv: last.iv, encrypted: last.encrypted, sender: last.sender, createdAt: last.createdAt }
+    : undefined;
+  await convo.save();
+}
+
+/**
+ * Delete several messages at once.  body: { conversationId, ids: [..], scope: 'me' | 'everyone' }
+ *  - 'me':       hidden from my view only; the other person still sees them
+ *  - 'everyone': removed for both people, but only messages I sent (the rest are skipped)
+ * Answers { deleted: [ids that were removed from my view] }.
+ */
+exports.deleteMany = async (req, res, next) => {
+  try {
+    const { conversationId, scope } = req.body || {};
+    const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))] : [];
+    if (!['me', 'everyone'].includes(scope)) return res.status(400).json({ message: 'Choose who to delete for' });
+    if (!ids.length || ids.length > 100 || !ids.every((x) => mongoose.isValidObjectId(x)))
+      return res.status(400).json({ message: 'Select between 1 and 100 messages' });
+
+    const convo = await loadConvo(conversationId, req.userId);
+    if (!convo) return res.status(404).json({ message: 'Conversation not found' });
+
+    const rows = await Message.find({ _id: { $in: ids }, conversation: convo._id });
+    const cid = convo._id.toString();
+    let removed;
+    if (scope === 'everyone') {
+      const mine = rows.filter((m) => m.sender.toString() === req.userId);
+      await Message.deleteMany({ _id: { $in: mine.map((m) => m._id) } });
+      mine.forEach((m) => removeUpload(m.attachment));
+      removed = mine.map((m) => m._id.toString());
+      if (removed.length) await refreshLast(convo);
+      convo.participants.forEach((p) =>
+        removed.forEach((messageId) => emitTo(req, idOf(p), 'message:deleted', { conversation: cid, messageId }))
+      );
+    } else {
+      await Message.updateMany({ _id: { $in: rows.map((m) => m._id) } }, { $addToSet: { deletedFor: req.userId } });
+      removed = rows.map((m) => m._id.toString());
+      removed.forEach((messageId) => emitTo(req, req.userId, 'message:deleted', { conversation: cid, messageId })); // my other tabs
+    }
+    res.json({ deleted: removed });
   } catch (err) {
     next(err);
   }

@@ -11,6 +11,9 @@ const messageSchema = new mongoose.Schema(
     // path of an end-to-end encrypted photo/video blob (the key is inside the encrypted text); deleted on unsend
     attachment: { type: String, default: '' },
     seen: { type: Boolean, default: false },
+    seenAt: { type: Date },
+    // people who removed this message from their own view only ("delete for me")
+    deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   },
   { timestamps: true }
 );

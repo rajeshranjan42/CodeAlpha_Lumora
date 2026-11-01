@@ -124,6 +124,7 @@ export const api = {
     return upload('/messages/media', form, onProgress);
   },
   markSeen: (id) => request(`/messages/conversations/${id}/seen`, { method: 'POST' }),
+  deleteMessages: (conversationId, ids, scope) => request('/messages/delete', { method: 'POST', body: { conversationId, ids, scope } }),
   deleteMessage: (id) => request(`/messages/${id}`, { method: 'DELETE' }),
   unreadCount: () => request('/messages/unread-count'),
 

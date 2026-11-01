@@ -13,6 +13,9 @@ import {
   CloseIcon,
   SendIcon,
   TrashIcon,
+  CheckIcon,
+  MoreIcon,
+  InfoIcon,
 } from '../components/Icons.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
@@ -34,6 +37,7 @@ const MAX_CHAT_MB = 20; // photos are shrunk first; videos must fit this
 
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 const clock = (d) => new Date(d).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const fullTime = (d) => new Date(d).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 const dayLabel = (d) => {
   const date = new Date(d);
   const today = new Date();
@@ -250,7 +254,7 @@ function Chat({ id }) {
       }
     };
     const onSeen = ({ conversation }) => {
-      if (conversation === id) setMessages((m) => m.map((x) => (x.sender === user._id ? { ...x, seen: true } : x)));
+      if (conversation === id) setMessages((m) => m.map((x) => (x.sender === user._id && !x.seen ? { ...x, seen: true, seenAt: new Date().toISOString() } : x)));
     };
     const onDeleted = ({ conversation, messageId }) => {
       if (conversation === id) setMessages((m) => m.filter((x) => x._id !== messageId));
@@ -367,13 +371,36 @@ function Chat({ id }) {
     }
   };
 
-  const unsend = async (messageId) => {
-    if (!window.confirm('Unsend this message for everyone?')) return;
+  /* ── message actions: one ⋯ sheet, multi-select, delete for me / for everyone, info ── */
+  const [actionFor, setActionFor] = useState(null); // message whose ⋯ sheet is open
+  const [infoFor, setInfoFor] = useState(null);
+  const [selected, setSelected] = useState(null); // null = normal mode, otherwise a Set of message ids
+  const [confirmIds, setConfirmIds] = useState(null); // ids waiting for "delete for me / everyone"
+  const [deleting, setDeleting] = useState(false);
+
+  const toggleSelect = (mid) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(mid)) next.delete(mid);
+      else next.add(mid);
+      return next;
+    });
+
+  const removeMessages = async (ids, scope) => {
+    setDeleting(true);
+    setError('');
     try {
-      await api.deleteMessage(messageId);
-      setMessages((m) => m.filter((x) => x._id !== messageId));
+      const { deleted } = await api.deleteMessages(id, ids, scope);
+      const gone = new Set(deleted);
+      setMessages((m) => m.filter((x) => !gone.has(x._id)));
+      setConfirmIds(null);
+      setSelected(null);
+      refreshUnread();
     } catch (err) {
       setError(err.message);
+      setConfirmIds(null);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -410,6 +437,22 @@ function Chat({ id }) {
   return (
     <div className="chat">
       <header className="chat-head">
+        {selected ? (
+          <>
+            <button className="icon-btn" onClick={() => setSelected(null)} aria-label="Cancel selection">
+              <CloseIcon width={22} height={22} />
+            </button>
+            <strong className="select-count">{selected.size} selected</strong>
+            <button
+              className="btn btn-sm select-del"
+              disabled={selected.size === 0}
+              onClick={() => setConfirmIds([...selected])}
+            >
+              <TrashIcon width={16} height={16} /> Delete
+            </button>
+          </>
+        ) : (
+        <>
         <button className="icon-btn back-btn" onClick={() => navigate('/messages')} aria-label="Back">
           <BackIcon width={22} height={22} />
         </button>
@@ -421,6 +464,8 @@ function Chat({ id }) {
               <span className={isOnline ? 'on' : ''}>{isOnline ? 'Active now' : `@${peer.username}`}</span>
             </span>
           </Link>
+        )}
+        </>
         )}
       </header>
 
@@ -462,11 +507,19 @@ function Chat({ id }) {
           return (
             <div key={m._id}>
               {newDay && <div className="day-sep">{dayLabel(m.createdAt)}</div>}
-              <div className={`msg-row ${mine ? 'mine' : 'theirs'} ${first ? 'first' : ''} ${last ? 'last' : ''}`}>
+              <div
+                className={`msg-row ${mine ? 'mine' : 'theirs'} ${first ? 'first' : ''} ${last ? 'last' : ''} ${selected ? 'selecting' : ''} ${selected?.has(m._id) ? 'picked' : ''}`}
+                onClick={selected ? () => toggleSelect(m._id) : undefined}
+              >
+                {selected && (
+                  <span className={`pick ${selected.has(m._id) ? 'on' : ''}`} aria-hidden="true">
+                    {selected.has(m._id) && <CheckIcon width={14} height={14} />}
+                  </span>
+                )}
                 {!mine && (last ? <Avatar user={peer} size={28} /> : <span className="avatar-gap" />)}
-                {mine && (
-                  <button className="icon-btn unsend" onClick={() => unsend(m._id)} aria-label="Unsend message" title="Unsend">
-                    <TrashIcon width={16} height={16} />
+                {mine && !selected && (
+                  <button className="icon-btn unsend" onClick={() => setActionFor(m)} aria-label="Message options" title="Options">
+                    <MoreIcon width={18} height={18} />
                   </button>
                 )}
                 <div className={`bubble ${m.plain && unpackMedia(m.plain).media ? 'has-media' : ''}`} title={clock(m.createdAt)}>
@@ -484,6 +537,11 @@ function Chat({ id }) {
                     })()
                   )}
                 </div>
+                {!mine && !selected && (
+                  <button className="icon-btn unsend" onClick={() => setActionFor(m)} aria-label="Message options" title="Options">
+                    <MoreIcon width={18} height={18} />
+                  </button>
+                )}
               </div>
               {mine && i === lastMine && <div className="receipt">{m.seen ? 'Seen' : 'Sent'} · {clock(m.createdAt)}</div>}
             </div>
@@ -517,6 +575,9 @@ function Chat({ id }) {
           )}
         </div>
       )}
+      {selected ? (
+        <div className="select-hint muted small">Tap messages to select them, then press Delete.</div>
+      ) : (
       <form className="chat-input" onSubmit={send}>
         <input ref={fileInput} type="file" accept="image/*,video/*" hidden onChange={chooseFile} />
         <button
@@ -541,6 +602,47 @@ function Chat({ id }) {
           <SendIcon width={20} height={20} />
         </button>
       </form>
+      )}
+
+      {actionFor && (
+        <Modal title="Message" onClose={() => setActionFor(null)}>
+          <div className="msg-actions">
+            <button onClick={() => { setInfoFor(actionFor); setActionFor(null); }}>
+              <InfoIcon width={20} height={20} /> Info
+            </button>
+            <button onClick={() => { setSelected(new Set([actionFor._id])); setActionFor(null); }}>
+              <CheckIcon width={20} height={20} /> Select
+            </button>
+            <button className="danger" onClick={() => { setConfirmIds([actionFor._id]); setActionFor(null); }}>
+              <TrashIcon width={20} height={20} /> Delete
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {infoFor && <MessageInfo m={infoFor} mine={infoFor.sender === user._id} peer={peer} onClose={() => setInfoFor(null)} />}
+
+      {confirmIds && (() => {
+        const allMine = confirmIds.every((mid) => messages.find((x) => x._id === mid)?.sender === user._id);
+        const n = confirmIds.length;
+        return (
+          <Modal title={`Delete ${n} message${n > 1 ? 's' : ''}?`} onClose={() => !deleting && setConfirmIds(null)}>
+            <div className="msg-actions">
+              <button disabled={deleting} onClick={() => removeMessages(confirmIds, 'me')}>
+                <TrashIcon width={20} height={20} /> Delete for me
+              </button>
+              <button className="danger" disabled={deleting || !allMine} onClick={() => removeMessages(confirmIds, 'everyone')}>
+                <TrashIcon width={20} height={20} /> Delete for everyone
+              </button>
+            </div>
+            <p className="muted small">
+              {allMine
+                ? 'For me removes them only from your chat. For everyone removes them for both of you.'
+                : 'Delete for everyone works only when every selected message is yours.'}
+            </p>
+          </Modal>
+        );
+      })()}
 
       {lightbox && (
         <Modal title="Photo" onClose={() => setLightbox(null)} wide>
@@ -553,19 +655,53 @@ function Chat({ id }) {
   );
 }
 
+/* ───────── message info ───────── */
+function MessageInfo({ m, mine, peer, onClose }) {
+  const { media } = unpackMedia(m.plain);
+  const kind = m.plain === null ? 'Unreadable on this device' : media ? (media.kind === 'video' ? 'Video' : 'Photo') : 'Text';
+  const body = m.plain === null ? '' : previewText(m.plain) || '';
+  return (
+    <Modal title="Message info" onClose={onClose}>
+      {body && <div className={`info-preview ${mine ? 'mine' : ''}`}>{body}</div>}
+      <dl className="info-list">
+        <dt>{mine ? 'Sent' : 'Received'}</dt>
+        <dd>{fullTime(m.createdAt)}</dd>
+        {mine && (
+          <>
+            <dt>Status</dt>
+            <dd>
+              {m.seen ? `Seen${m.seenAt ? ` · ${fullTime(m.seenAt)}` : ''}` : `Delivered · ${peer?.name || 'they'} haven’t seen it yet`}
+            </dd>
+          </>
+        )}
+        {!mine && peer && (
+          <>
+            <dt>From</dt>
+            <dd>{peer.name} (@{peer.username})</dd>
+          </>
+        )}
+        <dt>Type</dt>
+        <dd>{kind}</dd>
+        <dt>Security</dt>
+        <dd>{m.encrypted ? 'End-to-end encrypted' : 'Not encrypted (older message)'}</dd>
+      </dl>
+    </Modal>
+  );
+}
+
 /* ───────── page: inbox + chat ───────── */
 export default function Messages() {
   const { conversationId } = useParams();
   const { user: me } = useAuth();
   const { socket, online } = useSocket();
-  const [convos, setConvos] = useState(() => cache.get('convos') || null);
+  const [convos, setConvos] = useState(() => cache.get('convos')?.filter((c) => c.user) || null);
   const [previews, setPreviews] = useState({});
   const [composing, setComposing] = useState(false);
 
   const loadConvos = useCallback(() => {
     api
       .conversations()
-      .then((d) => setConvos(cache.set('convos', d.conversations)))
+      .then((d) => setConvos(cache.set('convos', d.conversations.filter((c) => c.user))))
       .catch(() => setConvos([]));
   }, []);
 

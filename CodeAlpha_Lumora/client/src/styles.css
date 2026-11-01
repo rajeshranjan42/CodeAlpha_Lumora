@@ -751,3 +751,27 @@ video.chat-media { cursor: default; background: #000; }
 .device-text small { color: var(--ink-2); line-height: 1.35; }
 .device-card .error { margin: 0 0 10px; }
 .device-row .btn-sm { flex: none; }
+
+/* ═════════ chat: message options, select & delete, info ═════════ */
+.unsend { opacity: 0; padding: 6px; transition: opacity .15s; color: var(--ink-2); }
+.msg-row:hover .unsend, .unsend:focus-visible { opacity: 1; }
+.msg-row.selecting { cursor: pointer; border-radius: 14px; }
+.msg-row.picked { background: color-mix(in srgb, var(--violet) 12%, transparent); }
+.pick { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; color: #fff; align-self: center; }
+.pick.on { background: var(--violet); border-color: var(--violet); }
+.select-count { flex: 1; font-size: 1.05rem; }
+.select-del { background: #e5395f; color: #fff; display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 999px; }
+.select-del:disabled { opacity: .4; }
+.select-hint { padding: 14px 16px; text-align: center; border-top: 1px solid var(--line); }
+.msg-actions { display: flex; flex-direction: column; gap: 6px; }
+.msg-actions button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 12px; border: 0; border-radius: 14px; background: var(--surface-2); color: var(--ink); font: inherit; font-weight: 600; cursor: pointer; text-align: left; }
+.msg-actions button:hover:not(:disabled) { background: var(--bg-2); }
+.msg-actions button:disabled { opacity: .4; cursor: default; }
+.msg-actions button.danger { color: #e5395f; }
+.modal-body > .small { margin-top: 12px; }
+.info-preview { padding: 10px 14px; border-radius: 16px; background: var(--surface-2); border: 1px solid var(--line); margin-bottom: 14px; word-break: break-word; white-space: pre-wrap; max-height: 120px; overflow: auto; }
+.info-preview.mine { background: var(--dawn); color: #fff; border-color: transparent; }
+.info-list { display: grid; grid-template-columns: 96px 1fr; gap: 10px 12px; margin: 0; }
+.info-list dt { color: var(--ink-2); font-size: .85rem; font-weight: 700; }
+.info-list dd { margin: 0; word-break: break-word; }
+@media (max-width: 760px) { .msg-row .unsend { opacity: .55; } }
