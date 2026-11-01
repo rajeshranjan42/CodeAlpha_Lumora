@@ -32,13 +32,14 @@ const loginNeedsOtp = (user) =>
   !user.emailVerified || (process.env.LOGIN_OTP !== 'false' && !/@lumora\.demo$/.test(user.email));
 
 /** Issues a code and emails it. Returns the seconds to wait if one was just sent. */
-async function sendCode(user) {
-  const r = await otp.issue(user.email);
+async function sendCode(user, purpose = 'verify') {
+  const key = purpose === 'reset' ? `reset:${user.email}` : user.email; // a reset code never works as a login code
+  const r = await otp.issue(key);
   if (r.wait) return r.wait;
   try {
-    await sendOtp(user.email, r.code, user.name);
+    await sendOtp(user.email, r.code, user.name, purpose);
   } catch (err) {
-    await otp.discard(user.email);
+    await otp.discard(key);
     console.error('✉  Could not send verification email:', err.message);
     const e = new Error('We couldn’t send the verification email right now. Please try again in a moment.');
     e.status = 502;
@@ -186,6 +187,54 @@ exports.setKeys = async (req, res, next) => {
     );
     if (r.matchedCount === 0) return res.status(409).json({ message: 'Encryption keys are already set up' });
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Forgot password, step 1: email a reset code. Always answers the same way, so nobody can find out
+ * which emails have an account.
+ */
+exports.forgotPassword = async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return res.status(400).json({ message: 'Please enter a valid email' });
+    const user = await User.findOne({ email, emailVerified: true });
+    if (!user) return res.json({ ok: true, email, resendIn: 60, message: `If ${email} has an account, we sent a 6-digit code to it` });
+    const wait = await sendCode(user, 'reset');
+    res.json({ ok: true, email, resendIn: wait || 60, message: `If ${email} has an account, we sent a 6-digit code to it` });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Forgot password, step 2: code + new password.
+ * Messages are encrypted with a key that is locked by the password, so a reset cannot unlock the old
+ * key. The account gets fresh encryption keys on the next login; older messages stay unreadable.
+ */
+exports.resetPassword = async (req, res, next) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const code = String(req.body.code || '').trim();
+    const password = String(req.body.password || '');
+    if (!EMAIL_RE.test(email) || !OTP_RE.test(code)) return res.status(400).json({ message: 'Enter the 6-digit code from your email' });
+    if (password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' });
+
+    const result = await otp.check(`reset:${email}`, code);
+    if (result === 'wrong') return res.status(400).json({ message: 'That code isn’t right. Please check and try again.' });
+    if (result === 'locked') return res.status(429).json({ message: 'Too many wrong attempts. Please request a new code.' });
+    if (result !== 'ok') return res.status(400).json({ message: 'That code has expired. Please request a new one.' });
+
+    const user = await User.findOne({ email }).select('+password +keyBackup');
+    if (!user) return res.status(404).json({ message: 'Account not found' });
+    user.password = password; // hashed by the model
+    user.publicKey = '';
+    user.keyBackup = undefined;
+    user.emailVerified = true;
+    await user.save();
+    res.json({ ok: true, message: 'Password changed. Log in with your new password.' });
   } catch (err) {
     next(err);
   }

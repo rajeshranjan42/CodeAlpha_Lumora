@@ -70,7 +70,14 @@ export const api = {
   login: (body) => request('/auth/login', { method: 'POST', body }),
   verifyEmail: (body) => request('/auth/verify-email', { method: 'POST', body }),
   resendOtp: (body) => request('/auth/resend-otp', { method: 'POST', body }),
+  forgotPassword: (body) => request('/auth/forgot-password', { method: 'POST', body }),
+  resetPassword: (body) => request('/auth/reset-password', { method: 'POST', body }),
   me: () => request('/auth/me'),
+
+  // device push notifications
+  pushKey: () => request('/push/key'),
+  pushSubscribe: (subscription) => request('/push/subscribe', { method: 'POST', body: { subscription } }),
+  pushUnsubscribe: (endpoint) => request('/push/unsubscribe', { method: 'POST', body: { endpoint } }),
   setKeys: (body) => request('/auth/keys', { method: 'PUT', body }),
 
   // users

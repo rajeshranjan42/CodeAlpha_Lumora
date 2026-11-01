@@ -5,7 +5,11 @@ import App from './App.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { SocketProvider } from './context/SocketContext.jsx';
 import { UploadProvider } from './context/UploadContext.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
+import { registerServiceWorker } from './pwa.js';
 import './styles.css';
+
+registerServiceWorker();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -13,7 +17,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <AuthProvider>
         <SocketProvider>
           <UploadProvider>
-            <App />
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
           </UploadProvider>
         </SocketProvider>
       </AuthProvider>

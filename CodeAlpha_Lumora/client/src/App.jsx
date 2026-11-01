@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from './context/AuthContext.jsx';
 import Layout from './components/Layout.jsx';
 import AuthPage from './pages/AuthPage.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
 import Feed from './pages/Feed.jsx';
 import Explore from './pages/Explore.jsx';
 import Profile from './pages/Profile.jsx';
@@ -36,6 +37,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<GuestOnly><AuthPage mode="login" /></GuestOnly>} />
       <Route path="/register" element={<GuestOnly><AuthPage mode="register" /></GuestOnly>} />
+      <Route path="/forgot-password" element={<GuestOnly><ForgotPassword /></GuestOnly>} />
       <Route element={<Protected><Layout /></Protected>}>
         <Route path="/" element={<Feed />} />
         <Route path="/explore" element={<Explore />} />

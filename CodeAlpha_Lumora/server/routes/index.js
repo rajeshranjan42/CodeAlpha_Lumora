@@ -12,6 +12,7 @@ const stories = require('../controllers/storyController');
 const reels = require('../controllers/reelController');
 const notifications = require('../controllers/notificationController');
 const music = require('../controllers/musicController');
+const push = require('../controllers/pushController');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -34,6 +35,8 @@ router.post('/auth/register', authLimiter, auth.register);
 router.post('/auth/login', authLimiter, auth.login);
 router.post('/auth/verify-email', otpLimiter, auth.verifyEmail);
 router.post('/auth/resend-otp', otpLimiter, auth.resendOtp);
+router.post('/auth/forgot-password', authLimiter, auth.forgotPassword);
+router.post('/auth/reset-password', otpLimiter, auth.resetPassword);
 router.get('/auth/me', protect, auth.me);
 router.put('/auth/keys', protect, auth.setKeys);
 
@@ -96,6 +99,11 @@ router.get('/notifications', protect, notifications.list);
 router.get('/notifications/unread-count', protect, notifications.unreadCount);
 router.post('/notifications/read', protect, notifications.readAll);
 router.delete('/notifications/:id', protect, notifications.remove);
+
+// ── device push notifications (Web Push) ──
+router.get('/push/key', protect, push.key);
+router.post('/push/subscribe', protect, push.subscribe);
+router.post('/push/unsubscribe', protect, push.unsubscribe);
 
 // ── music library (Jamendo) ──
 router.get('/music', protect, rateLimit({ windowMs: 60 * 1000, limit: 40, standardHeaders: true, legacyHeaders: false, message: { message: 'Slow down a little' } }), music.search);

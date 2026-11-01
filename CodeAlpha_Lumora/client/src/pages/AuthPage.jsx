@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { LogoMark } from '../components/Logo.jsx';
 import { api } from '../api.js';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 const readNotice = () => {
   try {
@@ -13,6 +14,38 @@ const readNotice = () => {
     return '';
   }
 };
+
+export function AuthHero() {
+  return (
+    <section className="auth-hero">
+        <div className="orb orb-1" />
+        <div className="orb orb-2" />
+        <div className="orb orb-3" />
+        <div className="auth-hero-inner">
+          <div className="auth-brand">
+            <LogoMark size={56} />
+            <div className="auth-brand-text">
+              <strong>Lumora</strong>
+              <span>CodeAlpha</span>
+              <small>by Rajesh Ranjan</small>
+            </div>
+          </div>
+          <h1>
+            Share your <em>light.</em>
+          </h1>
+          <p>
+            Lumora is a calmer corner of the internet. Post moments, send a glow to the things that
+            move you, and follow people who make your world brighter.
+          </p>
+          <ul className="values">
+            <li>✦ Meaningful over mindless</li>
+            <li>✦ Private, end-to-end encrypted messages</li>
+            <li>✦ Yours to shape</li>
+          </ul>
+        </div>
+    </section>
+  );
+}
 
 export default function AuthPage({ mode }) {
   const isLogin = mode === 'login';
@@ -104,33 +137,7 @@ export default function AuthPage({ mode }) {
 
   return (
     <div className="auth">
-      <section className="auth-hero">
-        <div className="orb orb-1" />
-        <div className="orb orb-2" />
-        <div className="orb orb-3" />
-        <div className="auth-hero-inner">
-          <div className="auth-brand">
-            <LogoMark size={56} />
-            <div className="auth-brand-text">
-              <strong>Lumora</strong>
-              <span>CodeAlpha</span>
-              <small>by Rajesh Ranjan</small>
-            </div>
-          </div>
-          <h1>
-            Share your <em>light.</em>
-          </h1>
-          <p>
-            Lumora is a calmer corner of the internet. Post moments, send a glow to the things that
-            move you, and follow people who make your world brighter.
-          </p>
-          <ul className="values">
-            <li>✦ Meaningful over mindless</li>
-            <li>✦ Private, end-to-end encrypted messages</li>
-            <li>✦ Yours to shape</li>
-          </ul>
-        </div>
-      </section>
+      <AuthHero />
 
       <section className="auth-panel">
         {otpFor ? (
@@ -211,15 +218,20 @@ export default function AuthPage({ mode }) {
           </label>
           <label className="field">
             <span>Password</span>
-            <input
-              type="password"
+            <PasswordInput
               value={form.password}
               onChange={set('password')}
               placeholder="At least 6 characters"
               minLength={6}
               required
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
             />
           </label>
+          {isLogin && (
+            <p className="forgot-row">
+              <Link to="/forgot-password">Forgot password?</Link>
+            </p>
+          )}
 
           {error && <p className="error">{error}</p>}
           <button className="btn btn-primary btn-block" disabled={busy}>

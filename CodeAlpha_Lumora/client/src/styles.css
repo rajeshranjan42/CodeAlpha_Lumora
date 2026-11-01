@@ -734,3 +734,20 @@ video.chat-media { cursor: default; background: #000; }
 
 .profile-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 @media (max-width: 480px) { .profile-tabs button { padding: 9px 16px; } }
+
+/* ═════════ show/hide password, forgot password, device alerts ═════════ */
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { width: 100%; padding-right: 46px; }
+.pw-eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; display: grid; place-items: center; border: 0; background: none; border-radius: 50%; color: var(--ink-2); cursor: pointer; }
+.pw-eye:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.pw-eye:focus-visible { outline: 2px solid var(--violet); outline-offset: 1px; }
+.forgot-row { margin: 10px 0 0; text-align: right; font-size: .88rem; }
+.forgot-row a { color: var(--violet); font-weight: 700; }
+.device-card { padding: 6px 16px; margin-bottom: 14px; }
+.device-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; }
+.device-row + .device-row { border-top: 1px solid var(--line); }
+.device-row > svg { flex: none; color: var(--violet); }
+.device-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.device-text small { color: var(--ink-2); line-height: 1.35; }
+.device-card .error { margin: 0 0 10px; }
+.device-row .btn-sm { flex: none; }

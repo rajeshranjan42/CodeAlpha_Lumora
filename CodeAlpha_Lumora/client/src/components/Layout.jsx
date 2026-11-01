@@ -3,7 +3,9 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import Logo, { LogoMark } from './Logo.jsx';
 import Avatar from './Avatar.jsx';
 import CreatePostModal from './CreatePostModal.jsx';
+import { InstallNavButton } from './DeviceSettings.jsx';
 import UploadTray from './UploadTray.jsx';
+import ErrorBoundary from './ErrorBoundary.jsx';
 import {
   HomeIcon,
   CompassIcon,
@@ -54,6 +56,14 @@ export default function Layout() {
   }, []);
 
   useEffect(() => setMenu(false), [pathname]);
+
+  // tapping a device notification while the app is open: go to the right page without reloading
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return undefined;
+    const onMsg = (e) => e.data?.type === 'navigate' && typeof e.data.url === 'string' && navigate(e.data.url);
+    navigator.serviceWorker.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg);
+  }, [navigate]);
 
   useEffect(() => {
     if (!menu) return undefined;
@@ -110,6 +120,7 @@ export default function Layout() {
           </NavLink>
         </nav>
         <div className="sidebar-foot">
+          <InstallNavButton />
           <button className="nav-item" onClick={toggleTheme}>
             {theme === 'light' ? <MoonIcon /> : <SunIcon />}
             <span>{theme === 'light' ? 'Dark mode' : 'Light mode'}</span>
@@ -158,6 +169,7 @@ export default function Layout() {
                 {theme === 'light' ? <MoonIcon width={20} height={20} /> : <SunIcon width={20} height={20} />}
                 {theme === 'light' ? 'Dark mode' : 'Light mode'}
               </button>
+              <InstallNavButton className="menu-item" />
               <button className="menu-item danger" role="menuitem" onClick={doLogout}>
                 <LogoutIcon width={20} height={20} /> Log out
               </button>
@@ -192,7 +204,11 @@ export default function Layout() {
         </NavLink>
       </nav>
 
-      {creating && <CreatePostModal initialTab={tab} onClose={() => setCreating(false)} />}
+      {creating && (
+        <ErrorBoundary inline onReset={() => setCreating(false)}>
+          <CreatePostModal initialTab={tab} onClose={() => setCreating(false)} />
+        </ErrorBoundary>
+      )}
 
       <UploadTray />
 

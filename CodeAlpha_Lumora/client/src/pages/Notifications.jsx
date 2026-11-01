@@ -4,6 +4,7 @@ import { api, assetUrl } from '../api.js';
 import Avatar from '../components/Avatar.jsx';
 import FollowButton from '../components/FollowButton.jsx';
 import { BellIcon, CloseIcon, PlayIcon } from '../components/Icons.jsx';
+import DeviceSettings from '../components/DeviceSettings.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
 import { cache } from '../cache.js';
 import { notificationLink, notificationText, timeAgo } from '../utils.js';
@@ -82,6 +83,7 @@ export default function Notifications() {
   return (
     <div className="page notif-page">
       <h2 className="section-title">Notifications</h2>
+      <DeviceSettings />
       {error && <p className="error">{error}</p>}
       {items === null && !error && <p className="muted center">Loading…</p>}
 

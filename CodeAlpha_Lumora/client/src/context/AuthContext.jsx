@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { api, getToken, setToken } from '../api.js';
 import { cache } from '../cache.js';
+import { dropPush, syncPush } from '../push.js';
 import { createKeys, forgetKeys, hasKeys, installKeys, unwrapPrivateKey } from '../e2ee.js';
 
 const AuthContext = createContext(null);
@@ -63,6 +64,7 @@ export function AuthProvider({ children }) {
     }
     cache.clear(); // never show another account's cached data
     setUser(d.user);
+    syncPush(); // if this device already allowed notifications, point them at this account
   }, []);
 
   // returns { needsVerification, email, resendIn } when an emailed code is required first
@@ -92,7 +94,11 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => {
     if (user) forgetKeys(user._id); // wipe the private key from this device
-    setToken(null);
+    // this device must stop getting the account's notifications; that call needs the token, so it is cleared only afterwards
+    const old = getToken();
+    Promise.race([dropPush(), new Promise((r) => setTimeout(r, 3000))]).finally(() => {
+      if (getToken() === old) setToken(null);
+    });
     cache.clear();
     setUser(null);
   }, [user]);

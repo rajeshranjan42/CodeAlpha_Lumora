@@ -209,3 +209,17 @@ export const LinkIcon = (p) => (
     <path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1" />
   </svg>
 );
+
+export const EyeOffIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M3 3l18 18" />
+    <path d="M10.6 5.1A10.6 10.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7c1.9 0 3.5-.5 4.9-1.3" />
+    <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+  </svg>
+);
+export const InstallIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M12 3v11m0 0-4-4m4 4 4-4" />
+    <path d="M4 15v3a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-3" />
+  </svg>
+);
