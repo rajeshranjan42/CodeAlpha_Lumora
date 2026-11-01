@@ -1,6 +1,10 @@
 const OTP_MINUTES = Number(process.env.OTP_MINUTES) || 10;
 
+// Option A (recommended on Render): Brevo's HTTPS API. No Google token that can expire.
+const brevoConfigured = () => !!(process.env.BREVO_API_KEY && process.env.MAIL_FROM);
+
 const configured = () =>
+  brevoConfigured() ||
   !!(process.env.GMAIL_USER && process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REFRESH_TOKEN);
 
 let transporter;
@@ -41,6 +45,25 @@ exports.sendOtp = async (to, code, name, purpose = 'verify') => {
     console.log(`\n✉  [dev] Gmail not configured — ${reset ? 'password reset' : 'verification'} code for ${to}: ${code}\n`);
     return;
   }
+  const subject = reset ? `${code} is your Lumora password reset code` : `${code} is your Lumora verification code`;
+  const text = `Your Lumora ${reset ? 'password reset' : 'verification'} code is ${code}. It expires in ${OTP_MINUTES} minutes.`;
+
+  if (brevoConfigured()) {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        sender: { name: 'Lumora · CodeAlpha', email: process.env.MAIL_FROM },
+        to: [{ email: to }],
+        subject,
+        textContent: text,
+        htmlContent: html(code, name, reset),
+      }),
+    });
+    if (!res.ok) throw new Error(`Brevo ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    return;
+  }
+
   await getTransporter().sendMail({
     from: `"Lumora · CodeAlpha" <${process.env.GMAIL_USER}>`,
     to,
