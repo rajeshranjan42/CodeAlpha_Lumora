@@ -13,6 +13,7 @@ const reels = require('../controllers/reelController');
 const notifications = require('../controllers/notificationController');
 const music = require('../controllers/musicController');
 const push = require('../controllers/pushController');
+const calls = require('../controllers/callController');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -105,6 +106,9 @@ router.delete('/notifications/:id', protect, notifications.remove);
 router.get('/push/key', protect, push.key);
 router.post('/push/subscribe', protect, push.subscribe);
 router.post('/push/unsubscribe', protect, push.unsubscribe);
+
+// ── voice / video calls: ICE (STUN/TURN) servers ──
+router.get('/calls/ice', protect, calls.ice);
 
 // ── music library (Jamendo) ──
 router.get('/music', protect, rateLimit({ windowMs: 60 * 1000, limit: 40, standardHeaders: true, legacyHeaders: false, message: { message: 'Slow down a little' } }), music.search);

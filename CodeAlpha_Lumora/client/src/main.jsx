@@ -5,6 +5,7 @@ import App from './App.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { SocketProvider } from './context/SocketContext.jsx';
 import { UploadProvider } from './context/UploadContext.jsx';
+import { CallProvider } from './context/CallContext.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { registerServiceWorker } from './pwa.js';
 import './styles.css';
@@ -16,11 +17,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <AuthProvider>
         <SocketProvider>
-          <UploadProvider>
-            <ErrorBoundary>
-              <App />
-            </ErrorBoundary>
-          </UploadProvider>
+          <CallProvider>
+            <UploadProvider>
+              <ErrorBoundary>
+                <App />
+              </ErrorBoundary>
+            </UploadProvider>
+          </CallProvider>
         </SocketProvider>
       </AuthProvider>
     </BrowserRouter>

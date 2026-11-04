@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import PostCard from '../components/PostCard.jsx';
@@ -20,7 +20,16 @@ const greeting = () => {
 
 export default function Feed() {
   const { user } = useAuth();
-  const cached = cache.get('feed');
+  const [mode, setMode] = useState(() => {
+    try {
+      return localStorage.getItem('lumora_feed_mode') === 'following' ? 'following' : 'foryou';
+    } catch {
+      return 'foryou';
+    }
+  });
+  const cacheKey = `feed:${mode}`;
+  const cached = cache.get(cacheKey);
+  const seed = useRef(cached?.seed || Math.floor(Math.random() * 2147483647) + 1); // new shuffle on every fresh visit
   const [posts, setPosts] = useState(cached?.posts || []);
   const [page, setPage] = useState(cached?.page || 1);
   const [hasMore, setHasMore] = useState(cached?.hasMore || false);
@@ -47,9 +56,10 @@ export default function Feed() {
   }, [loadStats]);
 
   const load = useCallback(async (p) => {
-    setLoading(p > 1 || !cache.get('feed')); // with cached posts on screen, refresh quietly
+    setLoading(p > 1 || !cache.get(cacheKey)); // with cached posts on screen, refresh quietly
     try {
-      const d = await api.feed(p);
+      if (p === 1) seed.current = Math.floor(Math.random() * 2147483647) + 1;
+      const d = await api.feed(p, mode, seed.current);
       setPosts((prev) => (p === 1 ? d.posts : [...prev, ...d.posts]));
       setHasMore(d.hasMore);
       setPage(p);
@@ -58,15 +68,31 @@ export default function Feed() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [mode, cacheKey]);
 
   useEffect(() => {
     load(1);
   }, [load]);
 
   useEffect(() => {
-    if (posts.length) cache.set('feed', { posts, page, hasMore });
-  }, [posts, page, hasMore]);
+    if (posts.length) cache.set(cacheKey, { posts, page, hasMore, seed: seed.current });
+  }, [posts, page, hasMore, cacheKey]);
+
+  const switchMode = (m) => {
+    if (m === mode) return;
+    try {
+      localStorage.setItem('lumora_feed_mode', m);
+    } catch {
+      /* ignore */
+    }
+    const c = cache.get(`feed:${m}`);
+    setPosts(c?.posts || []);
+    setPage(c?.page || 1);
+    setHasMore(c?.hasMore || false);
+    setLoading(!c);
+    setError('');
+    setMode(m);
+  };
 
   useEffect(() => {
     const onCreated = (e) => setPosts((p) => [e.detail, ...p]);
@@ -83,7 +109,18 @@ export default function Feed() {
           <h1>
             {greeting()}, <em>{user.name.split(' ')[0]}</em>
           </h1>
-          <p className="muted">Here’s what’s glowing in your circle today.</p>
+          <p className="muted">
+            {mode === 'foryou' ? 'A fresh mix from everyone on Lumora.' : 'Here’s what’s glowing in your circle today.'}
+          </p>
+        </div>
+
+        <div className="feed-tabs tabs" role="tablist">
+          <button role="tab" aria-selected={mode === 'foryou'} className={mode === 'foryou' ? 'on' : ''} onClick={() => switchMode('foryou')}>
+            For you
+          </button>
+          <button role="tab" aria-selected={mode === 'following'} className={mode === 'following' ? 'on' : ''} onClick={() => switchMode('following')}>
+            Following
+          </button>
         </div>
 
         <StoriesBar />
@@ -106,10 +143,11 @@ export default function Feed() {
 
         {!loading && posts.length === 0 && !error && (
           <div className="card empty">
-            <h3>Your feed is quiet</h3>
+            <h3>{mode === 'following' ? 'Nothing from your circle yet' : 'Your feed is quiet'}</h3>
             <p className="muted">
-              Follow a few people or <Link to="/explore">explore</Link> what others are sharing — or
-              post your first glow.
+              {mode === 'following' ? 'Follow a few people, or switch to “For you” to see everyone.' : 'Be the first to post a glow, or '}
+              {mode === 'foryou' && <Link to="/explore">explore</Link>}
+              {mode === 'foryou' && '.'}
             </p>
           </div>
         )}

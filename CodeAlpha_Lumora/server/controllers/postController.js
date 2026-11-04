@@ -8,9 +8,6 @@ const storage = require('../utils/storage');
 const PAGE_SIZE = 10;
 const AUTHOR_FIELDS = 'name username avatar';
 
-// deleted user ke posts (author === null) ko list se hata deta hai
-const withAuthor = (rows) => rows.filter((p) => p && p.author);
-
 const paginate = async (filter, req, res, size = PAGE_SIZE) => {
   const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
   const rows = await Post.find(filter)
@@ -19,7 +16,7 @@ const paginate = async (filter, req, res, size = PAGE_SIZE) => {
     .limit(size + 1) // fetch one extra to know if there is another page
     .populate('author', AUTHOR_FIELDS);
   res.json({
-    posts: withAuthor(rows.slice(0, size)).map((p) => formatPost(p, req.userId)),
+    posts: rows.slice(0, size).map((p) => formatPost(p, req.userId)),
     hasMore: rows.length > size,
   });
 };
@@ -53,12 +50,59 @@ exports.createPost = async (req, res, next) => {
   }
 };
 
-/** Posts from people I follow + my own */
+/** Small seeded random generator (same seed → same order, so paging through a shuffled feed stays consistent). */
+const rng = (seed) => {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+const shuffle = (arr, rand) => {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+};
+
+/**
+ * Home feed.
+ *  ?mode=following → only people I follow + me, newest first
+ *  ?mode=foryou (default) → a random mix of recent posts and reels from EVERYONE, with people I follow showing up
+ *    a bit more often. `seed` keeps the order stable while the user scrolls; a new seed gives a fresh shuffle.
+ */
 exports.feed = async (req, res, next) => {
   try {
     const me = await User.findById(req.userId).select('following');
-    if (!me) return res.status(401).json({ message: 'User no longer exists' });
-    await paginate({ author: { $in: [...me.following, me._id] } }, req, res); // includes reels
+    const circle = [...me.following, me._id];
+    if (req.query.mode === 'following') return await paginate({ author: { $in: circle } }, req, res); // includes reels
+
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const seed = parseInt(req.query.seed, 10) || 1;
+    const [near, far] = await Promise.all([
+      Post.find({ author: { $in: circle } }).sort({ createdAt: -1 }).limit(120).select('_id').lean(),
+      Post.find({ author: { $nin: circle } }).sort({ createdAt: -1 }).limit(400).select('_id').lean(),
+    ]);
+    const rand = rng(seed);
+    shuffle(near, rand);
+    shuffle(far, rand);
+    const order = [];
+    while (near.length || far.length) {
+      const pickNear = near.length && (!far.length || rand() < 0.4);
+      order.push((pickNear ? near : far).pop()._id);
+    }
+    const from = (page - 1) * PAGE_SIZE;
+    const ids = order.slice(from, from + PAGE_SIZE);
+    const rows = await Post.find({ _id: { $in: ids } }).populate('author', AUTHOR_FIELDS);
+    const byId = new Map(rows.map((p) => [p._id.toString(), p]));
+    res.json({
+      posts: ids.map((id) => byId.get(id.toString())).filter(Boolean).map((p) => formatPost(p, req.userId)),
+      hasMore: from + PAGE_SIZE < order.length,
+    });
   } catch (err) {
     next(err);
   }
@@ -76,10 +120,8 @@ exports.userPosts = async (req, res, next) => {
   try {
     const user = await User.findOne({ username: req.params.username.toLowerCase() }).select('_id');
     if (!user) return res.status(404).json({ message: 'User not found' });
-    const posts = await Post.find({ author: user._id, kind: { $ne: 'reel' } })
-      .sort({ createdAt: -1 })
-      .populate('author', AUTHOR_FIELDS);
-    res.json({ posts: withAuthor(posts).map((p) => formatPost(p, req.userId)) });
+    const posts = await Post.find({ author: user._id, kind: { $ne: 'reel' } }).sort({ createdAt: -1 }).populate('author', AUTHOR_FIELDS);
+    res.json({ posts: posts.map((p) => formatPost(p, req.userId)) });
   } catch (err) {
     next(err);
   }
@@ -88,7 +130,7 @@ exports.userPosts = async (req, res, next) => {
 exports.getPost = async (req, res, next) => {
   try {
     const post = await Post.findById(req.params.id).populate('author', AUTHOR_FIELDS);
-    if (!post || !post.author) return res.status(404).json({ message: 'Post not found' });
+    if (!post) return res.status(404).json({ message: 'Post not found' });
     res.json({ post: formatPost(post, req.userId) });
   } catch (err) {
     next(err);
@@ -151,11 +193,8 @@ exports.toggleSave = async (req, res, next) => {
 /** My saved posts and reels (private) */
 exports.saved = async (req, res, next) => {
   try {
-    const rows = await Post.find({ savedBy: req.userId })
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .populate('author', AUTHOR_FIELDS);
-    res.json({ posts: withAuthor(rows).map((p) => formatPost(p, req.userId)) });
+    const rows = await Post.find({ savedBy: req.userId }).sort({ createdAt: -1 }).limit(100).populate('author', AUTHOR_FIELDS);
+    res.json({ posts: rows.map((p) => formatPost(p, req.userId)) });
   } catch (err) {
     next(err);
   }

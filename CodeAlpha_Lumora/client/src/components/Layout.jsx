@@ -5,6 +5,7 @@ import Avatar from './Avatar.jsx';
 import CreatePostModal from './CreatePostModal.jsx';
 import { InstallNavButton } from './DeviceSettings.jsx';
 import UploadTray from './UploadTray.jsx';
+import CallOverlay from './CallOverlay.jsx';
 import ErrorBoundary from './ErrorBoundary.jsx';
 import {
   HomeIcon,
@@ -211,6 +212,7 @@ export default function Layout() {
       )}
 
       <UploadTray />
+      <CallOverlay />
 
       {toast && (
         <Link to={notificationLink(toast)} className="toast" onClick={() => setToast(null)}>

@@ -42,7 +42,8 @@ upload.chat = multer({
   storage: multer.diskStorage({
     destination: path.join(__dirname, '..', 'uploads'),
     // the owner's id is part of the name so a message can only reference the sender's own uploads
-    filename: (req, _file, cb) => cb(null, `chat-${req.userId}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}.bin`),
+    // no file extension on purpose: Cloudinary refuses uploads whose extension it doesn't know (e.g. ".bin")
+    filename: (req, _file, cb) => cb(null, `chat-${req.userId}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`),
   }),
   limits: { fileSize: 110 * 1024 * 1024, files: 1 },
 });

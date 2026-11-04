@@ -238,3 +238,39 @@ export const InfoIcon = (p) => (
     <circle cx="12" cy="7.8" r=".6" fill="currentColor" />
   </svg>
 );
+
+export const PhoneIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z" />
+  </svg>
+);
+export const PhoneOffIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M3 3l18 18" />
+    <path d="M10.7 5.3 9 4H5a2 2 0 0 0-2 2 16 16 0 0 0 9.5 14.6M15 13l5 2v4a2 2 0 0 1-2 2c-1.2 0-2.4-.2-3.5-.6" />
+  </svg>
+);
+export const VideoIcon = (p) => (
+  <svg {...base} {...p}>
+    <rect x="3" y="6" width="13" height="12" rx="3" />
+    <path d="m16 10.5 5-3v9l-5-3z" />
+  </svg>
+);
+export const VideoOffIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M3 3l18 18" />
+    <path d="M10 6H6a3 3 0 0 0-3 3v6a3 3 0 0 0 3 3h7a3 3 0 0 0 3-3v-1M16 10.5l5-3v9l-3.2-1.9" />
+  </svg>
+);
+export const MicIcon = (p) => (
+  <svg {...base} {...p}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+  </svg>
+);
+export const MicOffIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M3 3l18 18" />
+    <path d="M9 9v2a3 3 0 0 0 5 2.2M15 10V6a3 3 0 0 0-5.7-1.3M5 11a7 7 0 0 0 11.5 5.3M19 11a7 7 0 0 1-.6 2.8M12 18v3" />
+  </svg>
+);

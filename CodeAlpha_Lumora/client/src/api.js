@@ -74,6 +74,9 @@ export const api = {
   resetPassword: (body) => request('/auth/reset-password', { method: 'POST', body }),
   me: () => request('/auth/me'),
 
+  // voice / video calls: the STUN/TURN servers the browser connects through
+  callIce: () => request('/calls/ice'),
+
   // device push notifications
   pushKey: () => request('/push/key'),
   pushSubscribe: (subscription) => request('/push/subscribe', { method: 'POST', body: { subscription } }),
@@ -90,7 +93,7 @@ export const api = {
   following: (username) => request(`/users/${username}/following`),
 
   // posts
-  feed: (page = 1) => request(`/posts/feed?page=${page}`),
+  feed: (page = 1, mode = 'foryou', seed = 1) => request(`/posts/feed?page=${page}&mode=${mode}&seed=${seed}`),
   explore: (page = 1) => request(`/posts/explore?page=${page}`),
   userPosts: (username) => request(`/posts/user/${username}`),
   createPost: (form, onProgress) => upload('/posts', form, onProgress),

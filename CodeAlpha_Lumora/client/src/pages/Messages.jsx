@@ -16,9 +16,12 @@ import {
   CheckIcon,
   MoreIcon,
   InfoIcon,
+  PhoneIcon,
+  VideoIcon,
 } from '../components/Icons.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
+import { useCall } from '../context/CallContext.jsx';
 import { timeAgo } from '../utils.js';
 import { cache } from '../cache.js';
 import { compressImage, readDuration } from '../mediaUtils.js';
@@ -176,6 +179,7 @@ function SafetyModal({ peer, onClose }) {
 function Chat({ id }) {
   const { user } = useAuth();
   const { socket, online, refreshUnread } = useSocket();
+  const { call, startCall } = useCall();
   const navigate = useNavigate();
 
   const [peer, setPeer] = useState(null);
@@ -464,6 +468,16 @@ function Chat({ id }) {
               <span className={isOnline ? 'on' : ''}>{isOnline ? 'Active now' : `@${peer.username}`}</span>
             </span>
           </Link>
+        )}
+        {peer && (
+          <div className="call-btns">
+            <button className="icon-btn" disabled={!!call} onClick={() => startCall(peer, 'audio')} aria-label={`Voice call ${peer.name}`} title="Voice call">
+              <PhoneIcon width={22} height={22} />
+            </button>
+            <button className="icon-btn" disabled={!!call} onClick={() => startCall(peer, 'video')} aria-label={`Video call ${peer.name}`} title="Video call">
+              <VideoIcon width={24} height={24} />
+            </button>
+          </div>
         )}
         </>
         )}

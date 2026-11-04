@@ -108,9 +108,9 @@ exports.remove = async (url) => {
 /** Does this chat attachment belong to `userId`? Works for both storage modes. */
 exports.ownsChatFile = (att, userId) => {
   if (!att) return false;
-  const local = /^\/uploads\/(chat-([a-f0-9]{24})-[\w-]+\.bin)$/.exec(att);
+  const local = /^\/uploads\/(chat-([a-f0-9]{24})-[\w-]+(?:\.bin)?)$/.exec(att);
   if (local) return local[2] === userId && fs.existsSync(path.join(__dirname, '..', 'uploads', local[1]));
   const cfg = config();
   const m = CLD_URL.exec(att);
-  return !!(cfg && m && m[1] === cfg.cloud && m[2] === 'raw' && new RegExp(`^lumora/chat-${userId}-[\\w-]+\\.bin$`).test(m[3]));
+  return !!(cfg && m && m[1] === cfg.cloud && m[2] === 'raw' && new RegExp(`^lumora/chat-${userId}-[\\w-]+(?:\\.bin)?$`).test(m[3]));
 };
