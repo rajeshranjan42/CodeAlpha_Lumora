@@ -13,6 +13,8 @@ const messageSchema = new mongoose.Schema(
     seen: { type: Boolean, default: false },
     seenAt: { type: Date },
     // people who removed this message from their own view only ("delete for me")
+    // emoji reactions, one per person
+    reactions: [{ _id: false, user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, emoji: { type: String, maxlength: 8 } }],
     deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   },
   { timestamps: true }

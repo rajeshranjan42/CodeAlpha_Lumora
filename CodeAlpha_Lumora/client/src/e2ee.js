@@ -239,9 +239,30 @@ export function unpackMedia(plain) {
   }
 }
 
+/* ───────── a shared post / reel, sent as a card ─────────
+ * Only a small reference travels (id, thumbnail path, author, caption snippet); it is inside the encrypted
+ * message like everything else. card = { i: postId, v: 1 for reels, t: thumbnail path, a: username, c: caption }. */
+export const CARD_PREFIX = '\u0001P';
+
+export const packCard = (text, card) => CARD_PREFIX + JSON.stringify({ t: text || '', p: card });
+
+/** { text, card } — card is null unless the message is a shared post/reel. */
+export function unpackCard(plain) {
+  if (typeof plain !== 'string' || !plain.startsWith(CARD_PREFIX)) return { text: plain, card: null };
+  try {
+    const j = JSON.parse(plain.slice(CARD_PREFIX.length));
+    if (!j.p || typeof j.p.i !== 'string') return { text: plain, card: null };
+    return { text: j.t || '', card: j.p };
+  } catch {
+    return { text: plain, card: null };
+  }
+}
+
 /** One-line text for the inbox / notifications ("📷 Photo", or the caption). */
 export function previewText(plain) {
   if (plain == null) return plain;
+  const c = unpackCard(plain);
+  if (c.card) return c.text || (c.card.v ? '🎬 Reel' : '📌 Post');
   const { text, media } = unpackMedia(plain);
   if (!media) return text;
   return text || (media.kind === 'video' ? '🎥 Video' : '📷 Photo');

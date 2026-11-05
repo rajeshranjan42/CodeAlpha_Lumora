@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api } from '../api.js';
+import { api, assetUrl } from '../api.js';
 import Avatar from '../components/Avatar.jsx';
 import Modal from '../components/Modal.jsx';
+import SendPicker from '../components/SendPicker.jsx';
 import {
   BackIcon,
   ComposeIcon,
@@ -18,6 +19,8 @@ import {
   InfoIcon,
   PhoneIcon,
   VideoIcon,
+  PlayIcon,
+  ForwardIcon,
 } from '../components/Icons.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useSocket } from '../context/SocketContext.jsx';
@@ -33,8 +36,11 @@ import {
   packMedia,
   previewText,
   safetyNumber,
+  unpackCard,
   unpackMedia,
 } from '../e2ee.js';
+
+const EMOJIS = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
 
 const MAX_CHAT_MB = 20; // photos are shrunk first; videos must fit this
 
@@ -119,6 +125,32 @@ function NewMessageModal({ onClose }) {
         ))}
       </div>
     </Modal>
+  );
+}
+
+/* ───────── a shared post / reel shown as a card ───────── */
+function PostCardBubble({ card }) {
+  const isReel = !!card.v;
+  const to = isReel ? `/reels/${card.i}` : `/post/${card.i}`;
+  return (
+    <Link to={to} className="share-card" onClick={(e) => e.stopPropagation()}>
+      <span className="share-card-head">
+        <Avatar user={{ username: card.a, name: card.a, avatar: card.av }} size={24} />
+        <strong>{card.a}</strong>
+      </span>
+      <span className="share-card-media">
+        {isReel && card.m ? (
+          <video src={`${assetUrl(card.m)}#t=0.1`} preload="metadata" muted playsInline />
+        ) : card.t ? (
+          <img src={assetUrl(card.t)} alt="" loading="lazy" />
+        ) : (
+          <span className="share-card-empty">Post</span>
+        )}
+        {isReel && <span className="share-card-play"><PlayIcon width={26} height={26} /></span>}
+      </span>
+      {card.c && <span className="share-card-cap">{card.c}</span>}
+      <span className="share-card-open">{isReel ? 'Watch reel' : 'View post'}</span>
+    </Link>
   );
 }
 
@@ -263,6 +295,9 @@ function Chat({ id }) {
     const onDeleted = ({ conversation, messageId }) => {
       if (conversation === id) setMessages((m) => m.filter((x) => x._id !== messageId));
     };
+    const onReaction = ({ conversation, messageId, reactions }) => {
+      if (conversation === id) setMessages((m) => m.map((x) => (x._id === messageId ? { ...x, reactions } : x)));
+    };
     const onTyping = ({ from, typing: isTyping }) => {
       if (peer && from === peer._id) {
         setTyping(isTyping);
@@ -274,11 +309,13 @@ function Chat({ id }) {
     socket.on('message:new', onNew);
     socket.on('messages:seen', onSeen);
     socket.on('message:deleted', onDeleted);
+    socket.on('message:reaction', onReaction);
     socket.on('typing', onTyping);
     return () => {
       socket.off('message:new', onNew);
       socket.off('messages:seen', onSeen);
       socket.off('message:deleted', onDeleted);
+      socket.off('message:reaction', onReaction);
       socket.off('typing', onTyping);
       clearTimeout(typingClear.current);
     };
@@ -381,6 +418,8 @@ function Chat({ id }) {
   const [selected, setSelected] = useState(null); // null = normal mode, otherwise a Set of message ids
   const [confirmIds, setConfirmIds] = useState(null); // ids waiting for "delete for me / everyone"
   const [deleting, setDeleting] = useState(false);
+  const [forwardFor, setForwardFor] = useState(null); // message being forwarded
+  const [forwarded, setForwarded] = useState(0);
 
   const toggleSelect = (mid) =>
     setSelected((cur) => {
@@ -389,6 +428,17 @@ function Chat({ id }) {
       else next.add(mid);
       return next;
     });
+
+  const react = async (m, emoji) => {
+    setActionFor(null);
+    setError('');
+    try {
+      const d = await api.reactMessage(m._id, emoji);
+      setMessages((list) => list.map((x) => (x._id === m._id ? { ...x, reactions: d.reactions } : x)));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   const removeMessages = async (ids, scope) => {
     setDeleting(true);
@@ -536,19 +586,36 @@ function Chat({ id }) {
                     <MoreIcon width={18} height={18} />
                   </button>
                 )}
-                <div className={`bubble ${m.plain && unpackMedia(m.plain).media ? 'has-media' : ''}`} title={clock(m.createdAt)}>
-                  {m.plain === null ? (
-                    <em className="undecryptable">🔒 Can’t be decrypted on this device</em>
-                  ) : (
-                    (() => {
-                      const { text: body, media } = unpackMedia(m.plain);
-                      return (
-                        <>
-                          {media && <ChatMedia media={media} onOpen={setLightbox} />}
-                          {body && <span className={media ? 'media-caption' : ''}>{body}</span>}
-                        </>
-                      );
-                    })()
+                <div className="bubble-wrap">
+                  <div className={`bubble ${m.plain && (unpackMedia(m.plain).media || unpackCard(m.plain).card) ? 'has-media' : ''}`} title={clock(m.createdAt)}>
+                    {m.plain === null ? (
+                      <em className="undecryptable">🔒 Can’t be decrypted on this device</em>
+                    ) : (
+                      (() => {
+                        const sharedCard = unpackCard(m.plain);
+                        if (sharedCard.card) {
+                          return (
+                            <>
+                              <PostCardBubble card={sharedCard.card} />
+                              {sharedCard.text && <span className="media-caption">{sharedCard.text}</span>}
+                            </>
+                          );
+                        }
+                        const { text: body, media } = unpackMedia(m.plain);
+                        return (
+                          <>
+                            {media && <ChatMedia media={media} onOpen={setLightbox} />}
+                            {body && <span className={media ? 'media-caption' : ''}>{body}</span>}
+                          </>
+                        );
+                      })()
+                    )}
+                  </div>
+                  {m.reactions?.length > 0 && (
+                    <button type="button" className="react-chips" onClick={() => !selected && setActionFor(m)} aria-label="Reactions">
+                      {[...new Set(m.reactions.map((r) => r.emoji))].map((e) => <span key={e}>{e}</span>)}
+                      {m.reactions.length > 1 && <small>{m.reactions.length}</small>}
+                    </button>
                   )}
                 </div>
                 {!mine && !selected && (
@@ -620,7 +687,17 @@ function Chat({ id }) {
 
       {actionFor && (
         <Modal title="Message" onClose={() => setActionFor(null)}>
+          <div className="react-row">
+            {EMOJIS.map((e) => (
+              <button key={e} type="button" className={actionFor.reactions?.some((r) => r.user === user._id && r.emoji === e) ? 'on' : ''} onClick={() => react(actionFor, e)} aria-label={`React ${e}`}>
+                {e}
+              </button>
+            ))}
+          </div>
           <div className="msg-actions">
+            <button onClick={() => { setForwardFor(actionFor); setForwarded(0); setActionFor(null); }} disabled={actionFor.plain == null}>
+              <ForwardIcon width={20} height={20} /> Forward
+            </button>
             <button onClick={() => { setInfoFor(actionFor); setActionFor(null); }}>
               <InfoIcon width={20} height={20} /> Info
             </button>
@@ -631,6 +708,16 @@ function Chat({ id }) {
               <TrashIcon width={20} height={20} /> Delete
             </button>
           </div>
+        </Modal>
+      )}
+
+      {forwardFor && (
+        <Modal title="Forward to…" onClose={() => setForwardFor(null)}>
+          {forwarded ? (
+            <p className="share-done"><CheckIcon width={16} height={16} /> Forwarded to {forwarded} {forwarded > 1 ? 'people' : 'person'}.</p>
+          ) : (
+            <SendPicker allowNote={false} actionLabel="Forward" makePlain={() => forwardFor.plain} onDone={setForwarded} />
+          )}
         </Modal>
       )}
 

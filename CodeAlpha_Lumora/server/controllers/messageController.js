@@ -26,6 +26,7 @@ const formatMessage = (m) => ({
   attachment: m.attachment || '',
   seen: m.seen,
   seenAt: m.seenAt || null,
+  reactions: (m.reactions || []).map((r) => ({ user: r.user.toString(), emoji: r.emoji })),
   createdAt: m.createdAt,
 });
 
@@ -205,6 +206,52 @@ exports.sendMessage = async (req, res, next) => {
     ).catch(() => {});
 
     res.status(201).json({ message: payload.message });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const REACTIONS = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
+
+/** Toggle my emoji reaction on a message: same emoji again removes it, a different one replaces it. */
+exports.react = async (req, res, next) => {
+  try {
+    const { emoji } = req.body;
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: 'Invalid id' });
+    if (!REACTIONS.includes(emoji)) return res.status(400).json({ message: 'Unsupported reaction' });
+    const message = await Message.findById(req.params.id);
+    if (!message) return res.status(404).json({ message: 'Message not found' });
+    const convo = await loadConvo(message.conversation, req.userId);
+    if (!convo) return res.status(404).json({ message: 'Message not found' });
+    if ((message.deletedFor || []).some((u) => u.toString() === req.userId)) return res.status(404).json({ message: 'Message not found' });
+
+    const mine = message.reactions.find((r) => r.user.toString() === req.userId);
+    message.reactions = message.reactions.filter((r) => r.user.toString() !== req.userId);
+    if (!mine || mine.emoji !== emoji) message.reactions.push({ user: req.userId, emoji });
+    await message.save();
+
+    const payload = {
+      conversation: convo._id.toString(),
+      messageId: message._id.toString(),
+      reactions: formatMessage(message).reactions,
+    };
+    const otherId = idOf(otherOf(convo, req.userId));
+    emitTo(req, otherId, 'message:reaction', payload);
+    emitTo(req, req.userId, 'message:reaction', payload);
+
+    // tell the author when someone else reacts to their message (the server can't read the text)
+    const added = message.reactions.some((r) => r.user.toString() === req.userId);
+    if (added && message.sender.toString() !== req.userId) {
+      User.findById(req.userId).select('username').lean().then((me) =>
+        push.sendTo(otherId, {
+          title: me?.username || 'Lumora',
+          body: `Reacted ${emoji} to your message`,
+          url: `/messages/${convo._id}`,
+          tag: `react-${message._id}`,
+        })
+      ).catch(() => {});
+    }
+    res.json(payload);
   } catch (err) {
     next(err);
   }

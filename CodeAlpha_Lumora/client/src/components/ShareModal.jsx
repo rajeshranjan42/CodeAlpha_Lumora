@@ -1,10 +1,15 @@
 import { useState } from 'react';
 import Modal from './Modal.jsx';
 import { CheckIcon, LinkIcon, ShareIcon } from './Icons.jsx';
+import SendPicker from './SendPicker.jsx';
+import { packCard } from '../e2ee.js';
 
 /** Share a post or reel: copy the link, use the phone's share sheet, or open WhatsApp / Telegram. */
 export default function ShareModal({ post, onClose }) {
   const [copied, setCopied] = useState(false);
+  const [done, setDone] = useState(0);
+  const thumb = post.images?.[0] || post.image || '';
+  const card = { i: post._id, v: post.video ? 1 : 0, t: post.video ? '' : thumb, m: post.video || '', a: post.author.username, av: post.author.avatar || '', c: (post.caption || '').slice(0, 100) };
   const path = post.video ? `/reels/${post._id}` : `/post/${post._id}`;
   const link = `${window.location.origin}${path}`;
   const text = `${post.author.username} on Lumora: ${post.caption ? post.caption.slice(0, 80) : 'check this out'}`;
@@ -28,6 +33,13 @@ export default function ShareModal({ post, onClose }) {
 
   return (
     <Modal title={post.video ? 'Share reel' : 'Share post'} onClose={onClose}>
+      <h4 className="share-sub">Send to people</h4>
+      {done ? (
+        <p className="share-done"><CheckIcon width={16} height={16} /> Sent to {done} {done > 1 ? 'people' : 'person'}. They can open it from your chat.</p>
+      ) : (
+        <SendPicker makePlain={(note) => packCard(note, card)} onDone={setDone} />
+      )}
+      <h4 className="share-sub">Or share outside Lumora</h4>
       <div className="share-link">
         <input readOnly value={link} onFocus={(e) => e.target.select()} aria-label="Link" />
         <button type="button" className="btn btn-primary btn-sm" onClick={copy}>

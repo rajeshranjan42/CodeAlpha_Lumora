@@ -163,6 +163,12 @@ export const ShareIcon = (p) => (
     <path d="M21 3 10.5 13.5M21 3l-6.5 18-4-7.5L3 9.5z" />
   </svg>
 );
+export const ForwardIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="m15 4 6 6-6 6" />
+    <path d="M21 10H9a6 6 0 0 0-6 6v3" />
+  </svg>
+);
 export const MusicIcon = (p) => (
   <svg {...base} {...p}>
     <path d="M9 18V6l10-2v12" />
@@ -272,5 +278,32 @@ export const MicOffIcon = (p) => (
   <svg {...base} {...p}>
     <path d="M3 3l18 18" />
     <path d="M9 9v2a3 3 0 0 0 5 2.2M15 10V6a3 3 0 0 0-5.7-1.3M5 11a7 7 0 0 0 11.5 5.3M19 11a7 7 0 0 1-.6 2.8M12 18v3" />
+  </svg>
+);
+
+export const SpeakerIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M11 5 6 9H3v6h3l5 4z" />
+    <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+  </svg>
+);
+export const FlipCameraIcon = (p) => (
+  <svg {...base} {...p}>
+    <path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+    <path d="M9 13.5a3 3 0 0 1 5-1.5M15 13.5a3 3 0 0 1-5 1.5" />
+    <path d="M14.2 11.2V12h-.8M9.8 15.8V15h.8" />
+  </svg>
+);
+export const UserPlusIcon = (p) => (
+  <svg {...base} {...p}>
+    <circle cx="9.5" cy="8" r="3.5" />
+    <path d="M3 20a6.5 6.5 0 0 1 13 0" />
+    <path d="M19 8v6M16 11h6" />
+  </svg>
+);
+export const SmileIcon = (p) => (
+  <svg {...base} {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M8.5 14a4 4 0 0 0 7 0M9 9.5h.01M15 9.5h.01" />
   </svg>
 );
