@@ -43,6 +43,8 @@ export function CallProvider({ children }) {
   const [sinkId, setSinkId] = useState(''); // chosen speaker ('' = the device default)
   const [outputs, setOutputs] = useState([]); // speakers / headphones this device offers
   const [canFlip, setCanFlip] = useState(false); // more than one camera?
+  const [camState, setCamState] = useState({}); // userId -> is their camera on? (unknown = follow the call type)
+  const [loud, setLoud] = useState(false); // volume boost (phones can't pick the speaker, so we make it louder)
   const callRef = useRef(null); // always the latest call (handlers run outside React renders)
   const peers = useRef(new Map()); // userId -> { pc, user, pending: [ICE candidates before the offer/answer] }
   const localRef = useRef(null);
@@ -86,6 +88,8 @@ export function CallProvider({ children }) {
     setLocal(null);
     setReactions([]);
     setSinkId('');
+    setLoud(false);
+    setCamState({});
   }, []);
 
   const endLocal = (msg) => {
@@ -219,37 +223,102 @@ export function CallProvider({ children }) {
     track.enabled = !track.enabled;
     update({ muted: !track.enabled });
   };
-  const toggleCamera = () => {
-    const track = localRef.current?.getVideoTracks()[0];
-    if (!track) return;
-    track.enabled = !track.enabled;
-    update({ camOff: !track.enabled });
+  const sendState = () => {
+    const c = callRef.current;
+    if (!c) return;
+    const t = localRef.current?.getVideoTracks()[0];
+    socketRef.current?.emit('call:state', { callId: c.id, cam: !!(t && t.enabled) });
   };
 
-  /** Front <-> back camera (phones): a new camera track replaces the old one on every connection. */
-  const flipCamera = async () => {
-    if (!localRef.current?.getVideoTracks().length) return;
-    const next = facingRef.current === 'user' ? 'environment' : 'user';
+  /** Turn my camera on, adding it to the running call if this started as a voice call. */
+  const enableVideo = async () => {
+    const c = callRef.current;
+    const stream = localRef.current;
+    if (!c || !stream) return;
+    const existing = stream.getVideoTracks()[0];
+    if (existing) {
+      existing.enabled = true;
+      update({ kind: 'video', camOff: false });
+      return sendState();
+    }
+    let track;
     try {
-      const fresh = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: next }, width: { ideal: 1280 }, height: { ideal: 720 } } });
-      const track = fresh.getVideoTracks()[0];
-      const old = localRef.current.getVideoTracks()[0];
-      track.enabled = old ? old.enabled : true;
-      for (const { pc } of peers.current.values()) {
-        const sender = pc.getSenders().find((x) => x.track && x.track.kind === 'video');
-        if (sender) await sender.replaceTrack(track);
+      const v = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facingRef.current, width: { ideal: 1280 }, height: { ideal: 720 } } });
+      track = v.getVideoTracks()[0];
+    } catch (e) {
+      return flash(e.name === 'NotAllowedError' ? 'Allow camera access to switch to video.' : 'Couldn’t start your camera.');
+    }
+    if (callRef.current?.id !== c.id) return track.stop(); // call ended meanwhile
+    stream.addTrack(track);
+    update({ kind: 'video', camOff: false });
+    setLocal(new MediaStream(stream.getTracks()));
+    // every connection gets the new video track and is renegotiated
+    for (const [uid, { pc }] of peers.current) {
+      try {
+        pc.addTrack(track, stream);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socketRef.current?.emit('call:signal', { callId: c.id, to: uid, data: { type: 'offer', sdp: pc.localDescription.sdp } });
+      } catch {
+        flash('Couldn’t add video to the call.');
       }
-      if (old) {
-        localRef.current.removeTrack(old);
-        old.stop();
+    }
+    sendState();
+  };
+
+  const toggleCamera = () => {
+    const track = localRef.current?.getVideoTracks()[0];
+    if (!track) return enableVideo(); // voice call: this is "switch to video"
+    track.enabled = !track.enabled;
+    update({ camOff: !track.enabled });
+    sendState();
+  };
+
+  /** Front <-> back camera. Phones can't open two cameras at once, so the old one is released first. */
+  const flipCamera = async () => {
+    const stream = localRef.current;
+    const old = stream?.getVideoTracks()[0];
+    if (!stream || !old) return;
+    const next = facingRef.current === 'user' ? 'environment' : 'user';
+    const wasOn = old.enabled;
+    const open = (facingMode) => navigator.mediaDevices.getUserMedia({ video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } } });
+    old.stop();
+    let fresh;
+    let kept = false; // true when we had to fall back to the same camera
+    try {
+      fresh = await open({ exact: next });
+    } catch {
+      try {
+        // some phones don't accept "exact": take the other camera by its id instead
+        const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+        const cur = old.getSettings?.().deviceId;
+        const other = cams.find((d) => d.deviceId && d.deviceId !== cur);
+        if (!other) throw new Error('one camera');
+        fresh = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: other.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+      } catch (e) {
+        // couldn't switch: bring the original camera back
+        try {
+          fresh = await open(facingRef.current);
+          flash(e.message === 'one camera' ? 'This device has only one camera.' : 'Couldn’t switch the camera.');
+        } catch {
+          return flash('Couldn’t switch the camera.');
+        }
+        kept = true;
       }
-      localRef.current.addTrack(track);
+    }
+    const track = fresh.getVideoTracks()[0];
+    track.enabled = wasOn;
+    for (const { pc } of peers.current.values()) {
+      const sender = pc.getSenders().find((x) => x.track?.kind === 'video' || x.track === null);
+      if (sender) await sender.replaceTrack(track).catch(() => {});
+    }
+    stream.removeTrack(old);
+    stream.addTrack(track);
+    if (!kept) {
       facingRef.current = next;
       update({ facing: next });
-      setLocal(new MediaStream(localRef.current.getTracks())); // fresh object so the preview refreshes
-    } catch {
-      flash('Couldn’t switch the camera.');
     }
+    setLocal(new MediaStream(stream.getTracks())); // fresh object so the preview refreshes
   };
 
   /** Speaker: switch between the sound outputs this device offers (where the browser allows it). */
@@ -260,6 +329,28 @@ export function CallProvider({ children }) {
     setSinkId(next.deviceId);
     flash(`Sound: ${next.label || 'Speaker'}`);
   };
+
+  const toggleLoud = () => setLoud((v) => !v);
+
+  // loud mode: play everyone's sound through a gain stage (the <video> tags are muted meanwhile)
+  useEffect(() => {
+    if (!loud) return undefined;
+    let ctx;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch {
+      setLoud(false);
+      return undefined;
+    }
+    ctx.resume?.().catch(() => {});
+    const gain = ctx.createGain();
+    gain.gain.value = 3;
+    gain.connect(ctx.destination);
+    remotes.forEach((r) => {
+      if (r.stream?.getAudioTracks().length) ctx.createMediaStreamSource(r.stream).connect(gain);
+    });
+    return () => ctx.close().catch(() => {});
+  }, [loud, remotes]);
 
   const sendReaction = (emoji) => {
     const c = callRef.current;
@@ -310,9 +401,21 @@ export function CallProvider({ children }) {
       const c = callRef.current;
       if (!c || c.id !== callId) return;
       update({ status: 'connecting' });
+      sendState();
       queue.current = queue.current
         .then(() => connectTo(callId, others || []))
         .catch(() => endLocal('The call couldn’t be set up.'));
+    };
+
+    // someone turned their camera on or off (turning it on in a voice call switches everyone to video)
+    const onState = ({ callId, from, cam }) => {
+      const c = callRef.current;
+      if (!c || c.id !== callId) return;
+      setCamState((m) => ({ ...m, [from]: !!cam }));
+      if (cam && c.kind !== 'video') {
+        const mine = localRef.current?.getVideoTracks()[0];
+        update({ kind: 'video', camOff: !(mine && mine.enabled) });
+      }
     };
 
     const onPeerJoined = ({ callId, user: who }) => {
@@ -322,6 +425,7 @@ export function CallProvider({ children }) {
       const p = peers.current.get(who._id);
       if (p) p.user = who;
       setRemotes((list) => list.map((r) => (r.user._id === who._id ? { ...r, user: who } : r)));
+      sendState(); // tell the new person whether my camera is on
       if (c.status !== 'active') update({ status: 'connecting', peer: c.incoming ? c.peer : who });
       else flash(`${who.name || who.username} joined.`);
     };
@@ -404,6 +508,7 @@ export function CallProvider({ children }) {
     socket.on('call:peer-declined', onDeclined);
     socket.on('call:peer-missed', onNoAnswer);
     socket.on('call:react', onReact);
+    socket.on('call:state', onState);
     socket.on('call:signal', onSignal);
     socket.on('call:ended', onEnded);
     return () => {
@@ -414,6 +519,7 @@ export function CallProvider({ children }) {
       socket.off('call:peer-declined', onDeclined);
       socket.off('call:peer-missed', onNoAnswer);
       socket.off('call:react', onReact);
+      socket.off('call:state', onState);
       socket.off('call:signal', onSignal);
       socket.off('call:ended', onEnded);
     };
@@ -464,7 +570,7 @@ export function CallProvider({ children }) {
   }, [ringing, calling]);
 
   return (
-    <CallContext.Provider value={{ call, remotes, local, notice, reactions, sinkId, outputs, canFlip, startCall, answer, decline, hangup, toggleMute, toggleCamera, flipCamera, cycleSpeaker, sendReaction, addPerson }}>
+    <CallContext.Provider value={{ call, remotes, local, notice, reactions, camState, enableVideo, sinkId, outputs, canFlip, loud, toggleLoud, startCall, answer, decline, hangup, toggleMute, toggleCamera, flipCamera, cycleSpeaker, sendReaction, addPerson }}>
       {children}
     </CallContext.Provider>
   );

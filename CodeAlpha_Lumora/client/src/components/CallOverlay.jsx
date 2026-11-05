@@ -15,6 +15,7 @@ import {
   CloseIcon,
 } from './Icons.jsx';
 import { useCall } from '../context/CallContext.jsx';
+import { useAuth } from '../context/AuthContext.jsx';
 
 const REACTION_EMOJIS = ['❤️', '😂', '😮', '👏', '🔥', '👍'];
 const MAX_PARTY = 4;
@@ -74,9 +75,10 @@ function AddPerson({ inCallIds, full, onPick, onClose }) {
 /** Full-screen incoming / outgoing / ongoing call, plus a small notice when a call couldn't happen. */
 export default function CallOverlay() {
   const {
-    call, remotes, local, notice, reactions, sinkId, outputs, canFlip,
-    answer, decline, hangup, toggleMute, toggleCamera, flipCamera, cycleSpeaker, sendReaction, addPerson,
+    call, remotes, local, notice, reactions, camState, sinkId, outputs, loud, toggleLoud,
+    answer, decline, hangup, toggleMute, toggleCamera, enableVideo, flipCamera, cycleSpeaker, sendReaction, addPerson,
   } = useCall();
+  const { user: me } = useAuth();
   const [, tick] = useState(0);
   const [tray, setTray] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -100,8 +102,12 @@ export default function CallOverlay() {
     ) : null;
 
   const video = call.kind === 'video';
-  const live = video && call.status === 'active';
   const group = remotes.length > 1;
+  // is this person's camera on? (until we hear otherwise: video calls start with cameras on, voice calls off)
+  const camOn = (r) => (camState[r.user._id] ?? video) !== false;
+  const showFull = video && call.status === 'active' && !group && !!remotes[0] && camOn(remotes[0]);
+  const live = showFull || (video && call.status === 'active' && group); // video is on screen: compact header
+  const ambient = !live; // otherwise: the animated backdrop + big profile picture
   const names = remotes.map((r) => r.user.name || r.user.username).filter(Boolean);
   const name = group ? `${names[0]}, ${names[1]}${names.length > 2 ? ` +${names.length - 2}` : ''}` : remotes[0]?.user.name || call.peer?.name || call.peer?.username || 'Unknown';
   const status =
@@ -113,20 +119,26 @@ export default function CallOverlay() {
   const inCall = call.status === 'active' || call.status === 'connecting' || call.status === 'calling';
 
   return (
-    <div className={`call ${video ? 'is-video' : 'is-audio'} ${live ? 'live' : ''} ${group ? 'is-group' : ''}`} role="dialog" aria-modal="true" aria-label="Call">
+    <div className={`call ${video ? 'is-video' : 'is-audio'} ${live ? 'live' : ''} ${ambient ? 'ambient' : ''} ${group ? 'is-group' : ''}`} role="dialog" aria-modal="true" aria-label="Call">
+      {ambient && (
+        <div className="call-ambient" aria-hidden="true">
+          <i /><i /><i /><i />
+        </div>
+      )}
       {/* the other people's video (or just their sound for voice calls); a grid when there are several */}
       {group && live ? (
         <div className={`call-grid n${remotes.length}`}>
           {remotes.map((r) => (
-            <div className="call-tile" key={r.user._id}>
-              <Stream stream={r.stream} sinkId={sinkId} />
+            <div className={`call-tile ${camOn(r) ? '' : 'cam-off'}`} key={r.user._id}>
+              <Stream stream={r.stream} sinkId={sinkId} muted={loud} />
+              {!camOn(r) && <span className="call-tile-dp"><Avatar user={r.user} size={84} ring /></span>}
               <span className="call-tag">{r.user.name || r.user.username}</span>
             </div>
           ))}
         </div>
       ) : (
         remotes.map((r, i) => (
-          <Stream key={r.user._id} stream={r.stream} sinkId={sinkId} className={`call-remote ${live && i === 0 ? 'show' : ''}`} />
+          <Stream key={r.user._id} stream={r.stream} sinkId={sinkId} muted={loud} className={`call-remote ${showFull && i === 0 ? 'show' : ''}`} />
         ))
       )}
 
@@ -134,7 +146,9 @@ export default function CallOverlay() {
         {group && !live ? (
           <div className="call-faces">{remotes.map((r) => <Avatar key={r.user._id} user={r.user} size={72} ring />)}</div>
         ) : (
-          <Avatar user={remotes[0]?.user || call.peer} size={live ? 44 : 120} ring />
+          <span className={`call-avatar ${live ? '' : 'big'}`}>
+            <Avatar user={remotes[0]?.user || call.peer} size={live ? 44 : 120} ring />
+          </span>
         )}
         <h2>{name}</h2>
         <p aria-live="polite">{status}</p>
@@ -150,9 +164,14 @@ export default function CallOverlay() {
         ))}
       </div>
 
-      {video && local && call.status !== 'ringing' && (
-        <Stream stream={local} muted className={`call-local ${call.camOff ? 'off' : ''} ${call.facing === 'environment' ? 'rear' : ''}`} />
-      )}
+      {video && call.status !== 'ringing' && (call.camOff || !local ? (
+        <div className="call-local dp" aria-label="Your camera is off">
+          <Avatar user={me} size={64} ring />
+          <small>Camera off</small>
+        </div>
+      ) : (
+        <Stream stream={local} muted className={`call-local ${call.facing === 'environment' ? 'rear' : ''}`} />
+      ))}
 
       {notice && <div className="call-notice in-call" role="status">{notice}</div>}
 
@@ -181,18 +200,26 @@ export default function CallOverlay() {
           <button className={`call-btn ${call.muted ? 'on' : ''}`} onClick={toggleMute} aria-label={call.muted ? 'Unmute' : 'Mute'} aria-pressed={call.muted}>
             {call.muted ? <MicOffIcon width={24} height={24} /> : <MicIcon width={24} height={24} />}
           </button>
-          {video && (
+          {video ? (
             <button className={`call-btn ${call.camOff ? 'on' : ''}`} onClick={toggleCamera} aria-label={call.camOff ? 'Turn camera on' : 'Turn camera off'} aria-pressed={call.camOff}>
               {call.camOff ? <VideoOffIcon width={24} height={24} /> : <VideoIcon width={24} height={24} />}
             </button>
+          ) : (
+            <button className="call-btn" onClick={enableVideo} aria-label="Switch to video call">
+              <VideoIcon width={24} height={24} />
+            </button>
           )}
-          {video && canFlip && (
+          {video && (
             <button className="call-btn" onClick={flipCamera} aria-label="Switch camera">
               <FlipCameraIcon width={24} height={24} />
             </button>
           )}
-          {outputs.length > 1 && (
+          {outputs.length > 1 ? (
             <button className="call-btn" onClick={cycleSpeaker} aria-label="Change speaker">
+              <SpeakerIcon width={24} height={24} />
+            </button>
+          ) : (
+            <button className={`call-btn ${loud ? 'on' : ''}`} onClick={toggleLoud} aria-label={loud ? 'Speaker on (louder)' : 'Speaker'} aria-pressed={loud}>
               <SpeakerIcon width={24} height={24} />
             </button>
           )}

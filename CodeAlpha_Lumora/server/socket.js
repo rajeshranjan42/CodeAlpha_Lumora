@@ -213,6 +213,13 @@ module.exports = function initSocket(httpServer, origin) {
       toMembers(c, 'call:react', { callId, from: uid, emoji }, uid);
     });
 
+    // "my camera is on / off" so everyone can show a profile picture instead of a black tile
+    socket.on('call:state', ({ callId, cam } = {}) => {
+      const c = calls.get(callId);
+      if (!c || c.members.get(uid) !== socket.id) return;
+      toMembers(c, 'call:state', { callId, from: uid, cam: !!cam }, uid);
+    });
+
     socket.on('typing', (data) => {
       if (data && typeof data.to === 'string') {
         io.to(`user:${data.to}`).emit('typing', { from: uid, typing: !!data.typing });
