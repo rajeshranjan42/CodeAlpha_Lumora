@@ -103,7 +103,15 @@ export const api = {
   saved: () => request('/posts/saved'),
 
   // music library (Jamendo, through the server)
-  music: (q = '') => request(`/music?q=${encodeURIComponent(q)}`),
+  music: (q = '', source = 'jamendo') => request(`/music?q=${encodeURIComponent(q)}&source=${source}`),
+  // a song from the user's own device (mp3 / m4a / aac / wav / ogg, up to 12 MB)
+  uploadMusic: (file, title, artist, onProgress) => {
+    const form = new FormData();
+    form.append('title', title || '');
+    form.append('artist', artist || '');
+    form.append('file', file);
+    return upload('/music/upload', form, onProgress);
+  },
 
   // notifications
   notifications: (page = 1) => request(`/notifications?page=${page}`),
