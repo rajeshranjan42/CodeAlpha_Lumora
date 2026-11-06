@@ -113,5 +113,6 @@ router.get('/calls/ice', protect, calls.ice);
 
 // ── music library (Jamendo) ──
 router.get('/music', protect, rateLimit({ windowMs: 60 * 1000, limit: 40, standardHeaders: true, legacyHeaders: false, message: { message: 'Slow down a little' } }), music.search);
+router.post('/music/upload', protect, rateLimit({ windowMs: 60 * 60 * 1000, limit: 15, standardHeaders: true, legacyHeaders: false, message: { message: 'Too many uploads, try again later' } }), upload.audio.single('file'), music.uploadTrack);
 
 module.exports = router;

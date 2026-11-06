@@ -48,4 +48,16 @@ upload.chat = multer({
   limits: { fileSize: 110 * 1024 * 1024, files: 1 },
 });
 
+// songs people add themselves (music picker -> "My audio"); the owner's id is part of the name
+const AUDIO = { 'audio/mpeg': '.mp3', 'audio/mp3': '.mp3', 'audio/mp4': '.m4a', 'audio/x-m4a': '.m4a', 'audio/aac': '.aac', 'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/ogg': '.ogg' };
+upload.audio = multer({
+  storage: multer.diskStorage({
+    destination: path.join(__dirname, '..', 'uploads'),
+    filename: (req, file, cb) => cb(null, `music-${req.userId}-${Date.now()}-${crypto.randomBytes(5).toString('hex')}${AUDIO[file.mimetype]}`),
+  }),
+  limits: { fileSize: 12 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) =>
+    AUDIO[file.mimetype] ? cb(null, true) : cb(Object.assign(new Error('Please choose an MP3, M4A, AAC, WAV or OGG audio file'), { status: 400 })),
+});
+
 module.exports = upload;

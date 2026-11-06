@@ -52,13 +52,13 @@ async function post(cfg, type, action, fields, headers = {}, filename = 'file') 
 }
 
 /** Stores a multer file and returns the URL/path to save in the database. type: image | video | raw */
-exports.save = async (file, type = 'image') => {
+exports.save = async (file, type = 'image', publicId = '') => {
   const local = `/uploads/${file.filename}`;
   const cfg = config();
   if (!cfg) return local;
   try {
     const timestamp = Math.floor(Date.now() / 1000);
-    const params = { folder: 'lumora', timestamp, ...(type === 'raw' ? { public_id: file.filename } : {}) };
+    const params = { folder: 'lumora', timestamp, ...(type === 'raw' ? { public_id: file.filename } : publicId ? { public_id: publicId } : {}) };
     const base = { ...params, api_key: cfg.key, signature: sign(params, cfg.secret) };
     const total = fs.statSync(file.path).size;
     const blob = await fs.openAsBlob(file.path);
@@ -113,4 +113,13 @@ exports.ownsChatFile = (att, userId) => {
   const cfg = config();
   const m = CLD_URL.exec(att);
   return !!(cfg && m && m[1] === cfg.cloud && m[2] === 'raw' && new RegExp(`^lumora/chat-${userId}-[\\w-]+(?:\\.bin)?$`).test(m[3]));
+};
+
+/** Is this URL a song someone uploaded to THIS app (so it is safe to attach to a post)? Works for both storage modes. */
+exports.isMusicUpload = (url) => {
+  if (typeof url !== 'string') return false;
+  if (/^\/uploads\/music-[a-f0-9]{24}-[\w-]+\.(mp3|m4a|aac|wav|ogg)$/.test(url)) return true;
+  const cfg = config();
+  const m = CLD_URL.exec(url);
+  return !!(cfg && m && m[1] === cfg.cloud && m[2] === 'video' && /^lumora\/music-[a-f0-9]{24}-[\w-]+(\.(mp3|m4a|aac|wav|ogg))?$/.test(m[3]));
 };
