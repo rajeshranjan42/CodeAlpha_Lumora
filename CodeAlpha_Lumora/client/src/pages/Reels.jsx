@@ -24,6 +24,7 @@ import { cache } from '../cache.js';
 import { useAudioClip } from '../hooks/useAudioClip.js';
 import { useTrim, windowProgress } from '../hooks/useTrim.js';
 import { compact } from '../utils.js';
+import { isSpotify } from '../mediaUtils.js';
 
 function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
   const { user } = useAuth();
@@ -78,7 +79,7 @@ function ReelCard({ reel, active, muted, setMuted, onActive, onDelete }) {
   }, [active, userPaused, showComments, sharing, setMuted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (video.current) video.current.muted = muted || !!r.music;
+    if (video.current) video.current.muted = muted || (!!r.music && !isSpotify(r.music.url));
   }, [muted, r.music]);
 
   const pulse = (kind) => {

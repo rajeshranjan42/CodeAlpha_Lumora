@@ -1,17 +1,35 @@
 import { useEffect, useRef, useState } from 'react';
 import { MusicIcon, PauseIcon, PlayIcon } from './Icons.jsx';
+import { assetUrl } from '../api.js';
+import { spotifyEmbed } from '../mediaUtils.js';
 
 let current = null; // only one song plays at a time across the feed
 
 /** The song bar under a post. Plays while the post is on screen; tap to pause / resume. */
 export default function PostMusic({ music, className = '' }) {
+  const embed = spotifyEmbed(music.url);
+  // Spotify: its own small player (30-second preview, or the full song when the viewer is signed in to Spotify Premium)
+  if (embed)
+    return (
+      <iframe
+        className={`post-spotify ${className}`}
+        src={embed}
+        title={`${music.title} on Spotify`}
+        loading="lazy"
+        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+      />
+    );
+  return <PostAudio music={music} className={className} />;
+}
+
+function PostAudio({ music, className = '' }) {
   const box = useRef(null);
   const audio = useRef(null);
   const userOff = useRef(false);
   const [on, setOn] = useState(false);
 
   useEffect(() => {
-    const a = new Audio(music.url);
+    const a = new Audio(assetUrl(music.url));
     a.loop = true;
     a.preload = 'none';
     a.onplay = () => setOn(true);

@@ -27,3 +27,11 @@ export const fmtTime = (s) => {
   const t = Math.max(0, Math.round(s));
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 };
+
+// Spotify songs are played by Spotify's own embedded player (the app gets no audio file for them)
+const SPOTIFY_TRACK = /^https:\/\/open\.spotify\.com\/track\/([A-Za-z0-9]{22})$/;
+export const isSpotify = (url) => SPOTIFY_TRACK.test(url || '');
+export const spotifyEmbed = (url) => {
+  const m = SPOTIFY_TRACK.exec(url || '');
+  return m ? `https://open.spotify.com/embed/track/${m[1]}?utm_source=generator&theme=0` : '';
+};

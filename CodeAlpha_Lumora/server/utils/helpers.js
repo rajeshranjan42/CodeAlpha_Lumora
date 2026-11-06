@@ -52,18 +52,30 @@ exports.parseMusic = (raw) => {
   if (!raw) return null;
   try {
     const m = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    const url = new URL(String(m.url));
-    const host = url.hostname;
-    // only the music library's own servers (the browser plays this URL directly)
-    if (url.protocol !== 'https:' || !(host === 'jamendo.com' || host.endsWith('.jamendo.com') || host.endsWith('.jamen.do')))
-      return null;
+    const link = String(m.url);
+    let urlText;
+    if (link.startsWith('/uploads/')) {
+      // a song uploaded to this app (local disk mode)
+      if (!require('./storage').isMusicUpload(link)) return null;
+      urlText = link;
+    } else {
+      const url = new URL(link);
+      const host = url.hostname;
+      // only trusted music sources: Jamendo (free music), Apple's iTunes previews (Hindi / Bollywood), or our own uploads
+      const jamendo = host === 'jamendo.com' || host.endsWith('.jamendo.com') || host.endsWith('.jamen.do');
+      const apple = host.endsWith('.mzstatic.com') || host.endsWith('.itunes.apple.com') || host === 'itunes.apple.com';
+      const spotify = url.protocol === 'https:' && host === 'open.spotify.com' && /^\/track\/[A-Za-z0-9]{22}$/.test(url.pathname) && !url.search;
+      const mine = url.protocol === 'https:' && require('./storage').isMusicUpload(url.toString());
+      if (url.protocol !== 'https:' || !(jamendo || apple || spotify || mine)) return null;
+      urlText = url.toString();
+    }
     const cover = String(m.cover || '');
     return {
       id: String(m.id || '').slice(0, 30),
       title: String(m.title || 'Unknown').slice(0, 80),
       artist: String(m.artist || '').slice(0, 80),
       cover: /^https:\/\//.test(cover) ? cover.slice(0, 300) : '',
-      url: url.toString().slice(0, 500),
+      url: urlText.slice(0, 500),
     };
   } catch {
     return null;

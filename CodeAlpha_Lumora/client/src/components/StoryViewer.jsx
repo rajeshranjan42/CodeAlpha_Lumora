@@ -10,6 +10,7 @@ import { useTrim, windowProgress } from '../hooks/useTrim.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { encryptText } from '../e2ee.js';
 import { timeAgo } from '../utils.js';
+import { isSpotify } from '../mediaUtils.js';
 
 const IMAGE_MS = 5000;
 
@@ -76,7 +77,7 @@ function StoryFrame({ story, index, count, paused, onDone }) {
           src={assetUrl(story.media)}
           playsInline
           onLoadedData={startVideo}
-          muted={!!story.music}
+          muted={!!story.music && !isSpotify(story.music.url)}
           onTimeUpdate={(e) => setP(windowProgress(e.currentTarget, story.trimStart, story.trimEnd))}
           onEnded={onDone}
         />
